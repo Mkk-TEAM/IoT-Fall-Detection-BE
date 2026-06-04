@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  userID       String        @id @default(uuid())
+  fullName     String
+  phoneNumber  String        @unique
+  password     String
+  email        String        @unique
+  userGateways UserGateway[]
+}
+
+model OtpLogs {
+  id          Int      @id @default(autoincrement())
+  phoneNumber String   @map("phone_number")
+  otp         String
+  expiresAt   DateTime @map("expires_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([phoneNumber])
+}
+
+model Gateway {
+  gatewayID    String        @id
+  lastHearbeat DateTime
+  ipAddress    String
+  status       String
+  alerts       Alert[]
+  devices      Device[]
+  userGateways UserGateway[]
+}
+
+model UserGateway {
+  userID    String
+  gatewayID String
+  role      String  @default("viewer")
+  gateway   Gateway @relation(fields: [gatewayID], references: [gatewayID])
+  user      User    @relation(fields: [userID], references: [userID])
+
+  @@id([userID, gatewayID])
+}
+
+model Device {
+  status         String
+  deviceID       String      @id
+  deviceType     String
+  gatewayID      String
+  lastHearbeat   DateTime
+  location       String
+  sensitivity    Int
+  stagnationTime Int
+  alerts         Alert[]
+  gateway        Gateway     @relation(fields: [gatewayID], references: [gatewayID])
+  logs           HealthLog[]
+}
+
+model HealthLog {
+  logID       Int      @id @default(autoincrement())
+  logType     String
+  movement    Int
+  snapshotURL String?
+  recordedAt  DateTime @default(now())
+  deviceID    String
+  device      Device   @relation(fields: [deviceID], references: [deviceID])
+}
+
+model Alert {
+  alertID     Int      @id @default(autoincrement())
+  alertType   String
+  status      String
+  severity    String
+  timestamp   DateTime @default(now())
+  snapshotURL String?
+  deviceID    String?
+  gatewayID   String?
+  device      Device?  @relation(fields: [deviceID], references: [deviceID])
+  gateway     Gateway? @relation(fields: [gatewayID], references: [gatewayID])
+}
