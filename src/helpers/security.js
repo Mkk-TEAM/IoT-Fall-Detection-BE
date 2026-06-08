@@ -1,57 +1,31 @@
-import { BadRequestError, InternalServerError } from "./handleError.js";
+import bcrypt from "bcrypt";
+import crypto from "node:crypto";
+import { env } from "../config/env.js";
+import { InternalServerError } from "./handleError.js";
 
 export function getSaltRounds() {
-  const parsed = Number.parseInt(process.env.SALT_ROUNDS ?? "10", 10);
-
-  if (!Number.isInteger(parsed) || parsed < 4 || parsed > 15) {
-    throw new InternalServerError(
-      "Cấu hình SALT_ROUNDS không hợp lệ. Giá trị hợp lệ nên nằm trong khoảng 4-15.",
-    );
+  if (!Number.isInteger(env.saltRounds) || env.saltRounds < 4 || env.saltRounds > 15) {
+    throw new InternalServerError("SALT_ROUNDS không hợp lệ. Giá trị hợp lệ nên trong khoảng 4-15.", "INVALID_SECURITY_CONFIG");
   }
-
-  return parsed;
+  return env.saltRounds;
 }
 
-export function getJwtSecret() {
-  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
-    throw new InternalServerError(
-      "Cấu hình JWT_SECRET không hợp lệ. Vui lòng kiểm tra biến môi trường.",
-    );
-  }
-
-  return process.env.JWT_SECRET;
+export async function hashText(text) {
+  return bcrypt.hash(String(text), getSaltRounds());
 }
 
-export function getJwtExpiresIn() {
-  return process.env.JWT_EXPIRES_IN || "1h";
+export async function compareText(text, hash) {
+  return bcrypt.compare(String(text), hash);
 }
 
-export function normalizeEmail(email) {
-  return String(email || "").trim().toLowerCase();
+export function generateOtp(length = 6) {
+  const min = 10 ** (length - 1);
+  const max = 10 ** length - 1;
+  return crypto.randomInt(min, max + 1).toString();
 }
 
-export function normalizePhoneNumber(phoneNumber) {
-  return String(phoneNumber || "").trim();
-}
-
-export function validateEmail(email) {
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new BadRequestError("Email không hợp lệ");
-  }
-}
-
-export function validatePhoneNumber(phoneNumber) {
-  if (!/^0\d{9}$/.test(phoneNumber)) {
-    throw new BadRequestError("Số điện thoại không hợp lệ. Số điện thoại phải gồm 10 chữ số và bắt đầu bằng 0.");
-  }
-}
-
-export function validatePassword(password) {
-  if (typeof password !== "string" || password.length < 8) {
-    throw new BadRequestError("Mật khẩu phải có ít nhất 8 ký tự");
-  }
-
-  if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/\d/.test(password)) {
-    throw new BadRequestError("Mật khẩu phải có chữ hoa, chữ thường và số");
+export function assertJwtConfig() {
+  if (!env.jwtSecret || env.jwtSecret.length < 16) {
+    throw new InternalServerError("JWT_SECRET chưa được cấu hình hoặc quá ngắn.", "INVALID_JWT_CONFIG");
   }
 }

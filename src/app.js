@@ -1,25 +1,26 @@
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { env } from "./config/env.js";
 import { handleSuccessResponse } from "./helpers/handleResponse.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 
-const allowedOrigin = process.env.CORS_ORIGIN || "*";
+if (env.trustProxy) app.set("trust proxy", 1);
 
-app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
-app.use(cors({
-  origin: allowedOrigin === "*" ? true : allowedOrigin.split(",").map((origin) => origin.trim()),
-  credentials: true,
-}));
-app.use(express.json({ limit: "1mb" }));
+app.use(morgan(env.isProduction ? "combined" : "dev"));
+app.use(cors({ origin: env.corsOrigin === "*" ? true : env.corsOrigin, credentials: true }));
+app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
+app.use("/media", express.static(path.join(__dirname, "..", "media")));
 
-app.get("/health", (req, res) => res
-  .status(200)
-  .json(handleSuccessResponse(200, "System OK", {
-    service: "iot-fall-detection-backend",
-    timestamp: new Date().toISOString(),
-  })));
+app.get("/health", (req, res) => {
+  res.status(200).json(handleSuccessResponse({ uptime: process.uptime(), timestamp: new Date().toISOString() }, "System OK"));
+});
 
 export default app;

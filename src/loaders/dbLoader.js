@@ -1,48 +1,22 @@
-import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { env } from "../config/env.js";
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("Missing DATABASE_URL. Vui lòng cấu hình DATABASE_URL trong file .env");
+if (!env.databaseUrl) {
+  throw new Error("DATABASE_URL chưa được cấu hình trong .env");
 }
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
-const prisma = new PrismaClient({
-  adapter,
-  log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
-});
+const adapter = new PrismaPg({ connectionString: env.databaseUrl });
+const prisma = new PrismaClient({ adapter });
 
-let isConnected = false;
+export async function connectDB() {
+  await prisma.$connect();
+  await prisma.$queryRaw`SELECT 1`;
+  console.log("✅ PostgreSQL connected");
+}
 
-export const connectDB = async () => {
-  if (isConnected) return prisma;
-
-  try {
-    await prisma.$connect();
-    await prisma.$queryRaw`SELECT 1`;
-    isConnected = true;
-    console.log("✅ Kết nối PostgreSQL thành công!");
-    return prisma;
-  } catch (error) {
-    console.error("❌ Lỗi kết nối Database:", error.message);
-    process.exit(1);
-  }
-};
-
-export const disconnectDB = async () => {
-  if (!isConnected) return;
+export async function disconnectDB() {
   await prisma.$disconnect();
-  isConnected = false;
-};
-
-process.on("SIGINT", async () => {
-  await disconnectDB();
-  process.exit(0);
-});
-
-process.on("SIGTERM", async () => {
-  await disconnectDB();
-  process.exit(0);
-});
+}
 
 export default prisma;
