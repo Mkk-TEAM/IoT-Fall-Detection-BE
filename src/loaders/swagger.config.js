@@ -1,49 +1,50 @@
 import swaggerJSDoc from "swagger-jsdoc";
 import swaggerUi from "swagger-ui-express";
 
+const port = process.env.PORT || 3000;
+const apiPrefix = process.env.API_PREFIX || "/api/v1";
+const serverUrl = process.env.API_PUBLIC_URL || `http://localhost:${port}`;
+
 const swaggerDefinition = {
-    openapi: "3.0.0",
-    info: {
-        title: "IoT Fall Detection API",
-        version: "1.0",
-        description: "Hệ thống phát hiện té ngã ở người cao tuổi (ĐAĐN - 252)"
+  openapi: "3.0.0",
+  info: {
+    title: "IoT Fall Detection API",
+    version: "1.0.0",
+    description: "Backend API cho hệ thống phát hiện té ngã ở người cao tuổi.",
+  },
+  servers: [
+    {
+      url: `${serverUrl}${apiPrefix}`,
+      description: "Local/API server",
     },
-
-    // Truy cập vào API tại http://localhost:3000/swagger/api
-    servers: [
-        {
-            url: "http://localhost:3000",
-        }
-    ],
-
-    tags: [
-        {
-            name: "Auth",
-            description: "Các APIs cho Authentication",
-        },
-    ],
-
-    "components": {
-        "securitySchemes": {
-        "bearerAuth": {
-            "type": "http",
-            "scheme": "bearer",
-            "bearerFormat": "JWT"
-        }
-        }
-    }
-
-
-
-}
+  ],
+  tags: [
+    {
+      name: "Auth",
+      description: "Xác thực, OTP và tài khoản người dùng",
+    },
+  ],
+  components: {
+    securitySchemes: {
+      bearerAuth: {
+        type: "http",
+        scheme: "bearer",
+        bearerFormat: "JWT",
+      },
+    },
+  },
+};
 
 const options = {
-    definition: swaggerDefinition,
-    apis: ["../../routers/*.js", "./src/controllers/*.js"] // which contain Swagger comment
-}
+  definition: swaggerDefinition,
+  apis: ["./src/routes/*.js", "./src/controllers/*.js"],
+};
 
-const swaggerSpec = swaggerJSDoc(options)
+const swaggerSpec = swaggerJSDoc(options);
 
-export function setupSwagger(app){
-    app.use("/swagger/api", swaggerUi.serve, swaggerUi.setup(swaggerSpec))
+export function setupSwagger(app) {
+  app.use("/swagger/api", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    explorer: true,
+    customSiteTitle: "IoT Fall Detection API Docs",
+  }));
 }
