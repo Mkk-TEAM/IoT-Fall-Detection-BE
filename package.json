@@ -1,21 +1,28 @@
 {
-  "name": "dadn",
+  "name": "dadn-backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Backend API for IoT fall detection system for elderly care",
+  "main": "server.js",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
     "dev": "nodemon server.js",
     "db:pull": "npx dotenv -e ./.env -- npx prisma db pull",
-    "db:generate": "npx dotenv-cli -e ./.env -- npx prisma generate",
-    "db:deploy": "npx dotenv-cli -e ./.env -- npx prisma migrate deploy",
-    "db:status": "npx dotenv-cli -e ./.env -- npx prisma migrate status"
+    "db:generate": "npx dotenv -e ./.env -- npx prisma generate",
+    "db:deploy": "npx dotenv -e ./.env -- npx prisma migrate deploy",
+    "db:status": "npx dotenv -e ./.env -- npx prisma migrate status",
+    "db:studio": "npx dotenv -e ./.env -- npx prisma studio",
+    "db:reset": "npx dotenv -e ./.env -- npx prisma migrate reset"
   },
-  "keywords": [],
+  "keywords": [
+    "iot",
+    "fall-detection",
+    "express",
+    "prisma",
+    "postgresql"
+  ],
   "author": "",
   "license": "ISC",
-  "type": "module",
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
@@ -27,7 +34,6 @@
     "morgan": "^1.10.1",
     "nodemailer": "^8.0.5",
     "pg": "^8.20.0",
-    "sequelize": "^6.37.8",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1"
   },
