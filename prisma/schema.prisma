@@ -36,6 +36,7 @@ enum EventType {
   INACTIVITY
   DISCONNECT
   OUT_OF_RANGE
+  LOW_BATTERY
 }
 
 enum EventPriority {
@@ -66,22 +67,22 @@ enum DeliveryStatus {
 }
 
 model User {
-  userId       String       @id @default(uuid()) @map("user_id")
-  fullName     String       @map("full_name")
-  phoneNumber  String       @unique @map("phone_number")
-  email        String?      @unique
-  passwordHash String       @map("password_hash")
-  role         UserRole     @default(caregiver)
-  deviceToken  String?      @map("device_token")
-  isActive     Boolean      @default(true) @map("is_active")
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
+  userId       String   @id @default(uuid()) @map("user_id")
+  fullName     String   @map("full_name")
+  phoneNumber  String   @unique @map("phone_number")
+  email        String?  @unique
+  passwordHash String   @map("password_hash")
+  role         UserRole @default(caregiver)
+  deviceToken  String?  @map("device_token")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
-  ownedGateways      Gateway[]          @relation("GatewayOwner")
-  permissions        Permission[]
-  thresholdConfigs   ThresholdConfig[]  @relation("ThresholdUpdatedBy")
-  alertDeliveryLogs  AlertDeliveryLog[] @relation("AlertRecipientUser")
-  otpLogs            OtpLog[]
+  ownedGateways     Gateway[]          @relation("GatewayOwner")
+  permissions       Permission[]
+  thresholdConfigs  ThresholdConfig[]  @relation("ThresholdUpdatedBy")
+  alertDeliveryLogs AlertDeliveryLog[] @relation("AlertRecipientUser")
+  otpLogs           OtpLog[]
 
   @@map("users")
 }
@@ -96,10 +97,12 @@ model Gateway {
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
 
-  owner   User?    @relation("GatewayOwner", fields: [ownerUserId], references: [userId], onDelete: SetNull)
+  owner  User?   @relation("GatewayOwner", fields: [ownerUserId], references: [userId], onDelete: SetNull)
   devices Device[]
   events  Event[]
 
+  @@index([ownerUserId])
+  @@index([status])
   @@map("gateways")
 }
 
@@ -165,6 +168,7 @@ model Event {
   alertDeliveryLogs AlertDeliveryLog[]
 
   @@index([deviceId, timestamp])
+  @@index([gatewayId, timestamp])
   @@index([eventType, priority, status])
   @@map("events")
 }
@@ -181,6 +185,7 @@ model HealthLog {
   gyroY         Float?   @map("gyro_y")
   gyroZ         Float?   @map("gyro_z")
   tiltAngle     Float?   @map("tilt_angle")
+  batteryLevel  Int?     @map("battery_level")
   rawPayload    Json?    @map("raw_payload")
 
   device Device @relation(fields: [deviceId], references: [deviceId], onDelete: Cascade)
@@ -190,13 +195,13 @@ model HealthLog {
 }
 
 model ThresholdConfig {
-  thresholdConfigId         String   @id @default(uuid()) @map("threshold_config_id")
-  accelerationThreshold     Float    @default(2.8) @map("acceleration_threshold")
-  inactivityThresholdSeconds Int     @default(420) @map("inactivity_threshold_seconds")
-  disconnectThresholdSeconds Int     @default(30) @map("disconnect_threshold_seconds")
-  updatedByUserId           String?  @map("updated_by_user_id")
-  createdAt                 DateTime @default(now()) @map("created_at")
-  updatedAt                 DateTime @updatedAt @map("updated_at")
+  thresholdConfigId          String   @id @default(uuid()) @map("threshold_config_id")
+  accelerationThreshold      Float    @default(2.8) @map("acceleration_threshold")
+  inactivityThresholdSeconds Int      @default(420) @map("inactivity_threshold_seconds")
+  disconnectThresholdSeconds Int      @default(30) @map("disconnect_threshold_seconds")
+  updatedByUserId            String?  @map("updated_by_user_id")
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
 
   updatedBy User? @relation("ThresholdUpdatedBy", fields: [updatedByUserId], references: [userId], onDelete: SetNull)
 
@@ -225,18 +230,19 @@ model AlertDeliveryLog {
 }
 
 model OtpLog {
-  otpLogId    String   @id @default(uuid()) @map("otp_log_id")
-  userId      String?  @map("user_id")
+  otpLogId    String    @id @default(uuid()) @map("otp_log_id")
+  userId      String?   @map("user_id")
   destination String
-  channel     String   @default("EMAIL")
-  otpHash     String   @map("otp_hash")
-  expiresAt   DateTime @map("expires_at")
+  purpose     String    @default("REGISTER")
+  channel     String    @default("EMAIL")
+  otpHash     String    @map("otp_hash")
+  expiresAt   DateTime  @map("expires_at")
   consumedAt  DateTime? @map("consumed_at")
-  createdAt   DateTime @default(now()) @map("created_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
 
   user User? @relation(fields: [userId], references: [userId], onDelete: SetNull)
 
-  @@index([destination])
+  @@index([destination, purpose])
   @@index([expiresAt])
   @@map("otp_logs")
 }

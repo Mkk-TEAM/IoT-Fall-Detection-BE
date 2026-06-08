@@ -1,83 +1,26 @@
-# DADN Backend - Hệ thống phát hiện té ngã cho người cao tuổi
+# IoT Fall Detection Backend
 
-Backend cho đồ án **IoT Fall Detection**: hệ thống giám sát người cao tuổi trong phòng khoảng 25m², sử dụng dữ liệu **IMU + Camera** qua **Gateway** để phát hiện té ngã, bất động, mất kết nối, tạo cảnh báo và hỗ trợ người chăm sóc theo dõi từ xa.
+Backend cho đồ án **Hệ thống phát hiện té ngã trong nhà cho người cao tuổi**. Hệ thống hỗ trợ MVP dùng **IMU + Camera + Gateway**, cho phép đăng ký/đăng nhập, phân quyền, quản lý gateway/thiết bị, lưu telemetry IMU, tạo cảnh báo té ngã/bất thường, gửi cảnh báo qua email, xem lịch sử và tạo phiên stream camera.
 
-Tài liệu này dùng cho thư mục gốc dự án, tập trung vào cài đặt, cấu hình, chạy server, Prisma/PostgreSQL và quy trình phát triển backend.
+## 1. Công nghệ sử dụng
 
----
+- Node.js + Express 5
+- PostgreSQL
+- Prisma ORM 7
+- JWT authentication
+- bcrypt password hashing
+- Nodemailer email OTP / alert email
+- Swagger UI
 
-## 1. Tổng quan hệ thống
-
-Luồng dữ liệu chính của MVP:
-
-```text
-IMU --Bluetooth--> Gateway --WiFi/Internet--> Backend API/Event Service --> PostgreSQL
-Camera ----------> Gateway ------------------> Streaming/WebRTC Service ----> Web Dashboard
-Backend ---------> SMS/Email Provider --------> Người chăm sóc
-Backend ---------> Socket.io -----------------> Web Dashboard realtime
-```
-
-Các nhóm chức năng backend cần hỗ trợ:
-
-- Xác thực người dùng bằng JWT.
-- Đăng ký/đăng nhập tài khoản người chăm sóc hoặc quản trị viên.
-- Quản lý gateway, IMU, camera và trạng thái thiết bị.
-- Lưu dữ liệu vận động/health log từ IMU.
-- Tạo và lưu cảnh báo té ngã, bất động, mất kết nối.
-- Gửi cảnh báo qua email/SMS tùy cấu hình.
-- Phân quyền người dùng theo gateway/thiết bị.
-- Cung cấp API cho Web Dashboard.
-- Chuẩn bị mở rộng MQTT, Socket.io và WebRTC signaling.
-
----
-
-## 2. Công nghệ sử dụng
-
-| Nhóm | Công nghệ |
-|---|---|
-| Runtime | Node.js |
-| Framework | Express.js |
-| Database | PostgreSQL |
-| ORM | Prisma |
-| Authentication | JWT, bcrypt |
-| Email/OTP | Nodemailer |
-| API document | Swagger UI / swagger-jsdoc |
-| Dev tool | Nodemon, dotenv-cli |
-
-Dự án hiện dùng **ES Module**, vì vậy cú pháp import/export được bật bằng:
-
-```json
-"type": "module"
-```
-
----
-
-## 3. Yêu cầu môi trường
-
-Khuyến nghị:
-
-- Node.js `>= 20.19` hoặc Node.js `>= 22.12` để tương thích tốt với Prisma 7.
-- npm `>= 10`.
-- PostgreSQL `>= 14`.
-- Git.
-
-Kiểm tra nhanh:
-
-```bash
-node -v
-npm -v
-psql --version
-```
-
----
-
-## 4. Cấu trúc thư mục đề xuất
+## 2. Cấu trúc thư mục
 
 ```text
-DADN-BE/
+.
 ├── prisma/
 │   ├── schema.prisma
 │   └── migrations/
+├── scripts/
+│   └── createAdmin.js
 ├── src/
 │   ├── app.js
 │   ├── common/
@@ -87,199 +30,191 @@ DADN-BE/
 │   ├── jobs/
 │   ├── loaders/
 │   ├── middleware/
-│   ├── models/
 │   ├── routes/
 │   ├── services/
-│   └── readme.md
-├── .env
-├── .gitignore
+│   └── utils/
+├── server.js
 ├── package.json
-├── package-lock.json
 ├── prisma.config.ts
-├── README.md
-└── server.js
+├── .env.example
+└── .gitignore
 ```
 
-Vai trò các file chính:
+## 3. Yêu cầu môi trường
 
-| File | Vai trò |
-|---|---|
-| `server.js` | Entry point, nạp biến môi trường, gọi loaders, mở port server |
-| `src/app.js` | Khởi tạo Express app, middleware chung, health check |
-| `src/loaders/index.js` | Nơi gom các loader như route, swagger, database, mqtt, socket |
-| `prisma/schema.prisma` | Định nghĩa model Prisma |
-| `prisma.config.ts` | Cấu hình đường dẫn Prisma schema/migration và datasource |
-| `src/readme.md` | Tài liệu API, source convention và module backend |
+- Node.js 20 trở lên
+- npm 10 trở lên
+- PostgreSQL 14 trở lên
 
----
+Kiểm tra:
 
-## 5. Cài đặt dependencies
+```bash
+node -v
+npm -v
+psql --version
+```
 
-Tại thư mục gốc dự án:
+## 4. Cài đặt
 
 ```bash
 npm install
+cp .env.example .env
 ```
 
----
-
-## 6. Cấu hình biến môi trường
-
-Tạo file `.env` ở thư mục gốc dự án:
+Chỉnh file `.env` theo máy của bạn. Với PostgreSQL local không password trên macOS, ví dụ:
 
 ```env
-# Server
-NODE_ENV=development
-PORT=3000
-API_PREFIX=/api/v1
-
-# PostgreSQL
-DATABASE_URL="postgresql://postgres:your_password@localhost:5432/dadn_db?schema=public"
-
-# Authentication
-SALT_ROUNDS=10
-JWT_SECRET=change_this_to_a_long_random_secret
-JWT_EXPIRES_IN=1h
-
-# Email / OTP
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_SECURE=false
-EMAIL_USER=your_email@gmail.com
-EMAIL_APP_PASSWORD=your_gmail_app_password
-EMAIL_FROM="DADN Fall Detection <your_email@gmail.com>"
-OTP_EXPIRES_MINUTES=5
-
-# Optional - Swagger
-SWAGGER_ENABLED=true
-SWAGGER_PATH=/swagger/api
-
-# Optional - Realtime / IoT future extension
-MQTT_URL=mqtt://localhost:1883
-SOCKET_CORS_ORIGIN=http://localhost:5173
+DATABASE_URL="postgresql://nguyennhathuy@127.0.0.1:5432/dadn_db?schema=public"
 ```
 
-Lưu ý:
-
-- Không commit file `.env` lên Git.
-- Nếu mật khẩu database có ký tự đặc biệt như `@`, `#`, `%`, hãy URL encode trước khi đưa vào `DATABASE_URL`.
-- Với Gmail, nên dùng **App Password**, không dùng mật khẩu đăng nhập Gmail thông thường.
-
----
-
-## 7. Chuẩn bị PostgreSQL
-
-Đăng nhập PostgreSQL và tạo database:
-
-```sql
-CREATE DATABASE dadn_db;
-```
-
-Kiểm tra kết nối:
+Tạo database:
 
 ```bash
-psql "postgresql://postgres:your_password@localhost:5432/dadn_db"
+createdb -h 127.0.0.1 -p 5432 dadn_db
 ```
 
----
-
-## 8. Khởi tạo database bằng Prisma
-
-Dự án dùng Prisma migration. Với database trống, chạy theo thứ tự:
+Chạy migration và generate Prisma client:
 
 ```bash
 npm run db:deploy
 npm run db:generate
-npm run db:status
 ```
 
-Nếu đang trong giai đoạn phát triển và cần đồng bộ lại schema từ database hiện có:
+Tạo tài khoản admin ban đầu:
 
 ```bash
-npm run db:pull
-npm run db:generate
+npm run seed:admin
 ```
 
-Mở Prisma Studio để xem dữ liệu trực quan:
-
-```bash
-npx prisma studio
-```
-
----
-
-## 9. Chạy server
-
-Chạy môi trường phát triển:
+Chạy server:
 
 ```bash
 npm run dev
 ```
 
-Chạy bình thường:
+Hoặc:
 
 ```bash
 npm start
 ```
 
-Khi server chạy thành công:
+## 5. URL quan trọng
 
-```text
-Server đang chạy tại port: 3000
+- Health check: `GET http://localhost:3000/health`
+- API base URL: `http://localhost:3000/api/v1`
+- Swagger UI: `http://localhost:3000/swagger/api`
+
+## 6. Biến môi trường chính
+
+```env
+NODE_ENV=development
+PORT=3000
+API_PREFIX=/api/v1
+CORS_ORIGIN=http://localhost:5173
+DATABASE_URL="postgresql://user:password@127.0.0.1:5432/dadn_db?schema=public"
+SALT_ROUNDS=10
+JWT_SECRET=replace_with_a_long_random_secret
+JWT_EXPIRES_IN=1h
+EMAIL_ENABLED=false
+EMAIL_USER=
+EMAIL_APP_PASSWORD=
+OTP_EXPIRES_IN_MINUTES=5
+OTP_RESEND_INTERVAL_SECONDS=60
+STREAM_SESSION_TTL_SECONDS=300
+STUN_URL=stun:stun.l.google.com:19302
 ```
 
-Các URL thường dùng:
+Khi `EMAIL_ENABLED=false`, hệ thống không gửi email thật mà log OTP ra terminal để test nhanh.
 
-| Mục | URL |
-|---|---|
-| Health check | `GET http://localhost:3000/health` |
-| API base | `http://localhost:3000/api/v1` |
-| Swagger UI | `http://localhost:3000/swagger/api` |
+## 7. API đã hoàn thiện trong MVP backend
 
-Health check kỳ vọng:
+### Auth
 
-```json
-{
-  "message": "System OK"
-}
-```
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| POST | `/api/v1/auth/register/otp` | Gửi OTP đăng ký qua email |
+| POST | `/api/v1/auth/register` | Đăng ký tài khoản caregiver |
+| POST | `/api/v1/auth/login` | Đăng nhập và nhận JWT |
+| GET | `/api/v1/auth/me` | Lấy thông tin người dùng hiện tại |
+| POST | `/api/v1/auth/forgot-password/verify` | Gửi OTP đặt lại mật khẩu |
+| POST | `/api/v1/auth/forgot-password/reset` | Đặt lại mật khẩu |
 
----
+### Gateway
 
-## 10. Scripts trong package.json
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| GET | `/api/v1/gateways` | Lấy danh sách gateway |
+| GET | `/api/v1/gateways/:gatewayId` | Lấy chi tiết gateway |
+| POST | `/api/v1/gateways` | Tạo gateway |
+| PUT | `/api/v1/gateways/:gatewayId` | Cập nhật gateway |
+| PATCH | `/api/v1/gateways/:gatewayId/heartbeat` | Cập nhật heartbeat gateway |
+| DELETE | `/api/v1/gateways/:gatewayId` | Xóa gateway |
 
-| Lệnh | Chức năng |
-|---|---|
-| `npm start` | Chạy server bằng Node.js |
-| `npm run dev` | Chạy server bằng Nodemon, tự reload khi sửa code |
-| `npm run db:pull` | Kéo schema từ database về Prisma schema |
-| `npm run db:generate` | Sinh Prisma Client |
-| `npm run db:deploy` | Áp dụng migration lên database |
-| `npm run db:status` | Kiểm tra trạng thái migration |
+### Device
 
----
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| GET | `/api/v1/devices` | Lấy danh sách IMU/Camera |
+| GET | `/api/v1/devices/status` | Lấy trạng thái thiết bị |
+| GET | `/api/v1/devices/:deviceId` | Lấy chi tiết thiết bị |
+| POST | `/api/v1/devices` | Thêm thiết bị |
+| PUT | `/api/v1/devices/:deviceId` | Cập nhật thiết bị |
+| PATCH | `/api/v1/devices/:deviceId/heartbeat` | Cập nhật heartbeat thiết bị |
+| PATCH | `/api/v1/devices/:deviceId/disable` | Vô hiệu hóa thiết bị |
+| DELETE | `/api/v1/devices/:deviceId` | Xóa thiết bị |
 
-## 11. Model database hiện tại
+### Permission
 
-Các model chính trong Prisma schema:
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| GET | `/api/v1/permissions` | Lấy danh sách phân quyền |
+| POST | `/api/v1/permissions` | Gán/cập nhật quyền user-device |
+| PUT | `/api/v1/permissions/:permissionId` | Cập nhật quyền |
+| DELETE | `/api/v1/permissions/:permissionId` | Thu hồi quyền |
 
-| Model | Mục đích |
-|---|---|
-| `User` | Người dùng hệ thống, gồm người chăm sóc/admin |
-| `OtpLogs` | Lưu OTP phục vụ xác thực email/đăng ký/quên mật khẩu |
-| `Gateway` | Thiết bị trung gian nhận dữ liệu từ IMU/camera |
-| `UserGateway` | Bảng phân quyền người dùng theo gateway |
-| `Device` | IMU hoặc camera thuộc một gateway |
-| `HealthLog` | Log vận động, snapshot hoặc dữ liệu sức khỏe cơ bản |
-| `Alert` | Cảnh báo té ngã, bất động, mất kết nối |
+### Threshold
 
-Ghi chú kỹ thuật: trong schema hiện tại có field `lastHearbeat`. Khi trả API cho frontend nên chuẩn hóa thành `lastHeartbeat` để đúng thuật ngữ và dễ đọc hơn. Nếu sửa schema sau này, cần tạo migration đổi tên field cẩn thận để không mất dữ liệu.
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| GET | `/api/v1/thresholds` | Lấy ngưỡng hiện tại |
+| PUT | `/api/v1/thresholds` | Admin cập nhật ngưỡng |
 
----
+### Telemetry / Health log
 
-## 12. Quy ước response API
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| POST | `/api/v1/health-logs` | Lưu telemetry IMU |
+| GET | `/api/v1/health-logs` | Truy vấn dữ liệu IMU |
 
-Response thành công:
+### Event / Alert
+
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| POST | `/api/v1/events` | Tạo sự kiện cảnh báo |
+| GET | `/api/v1/events` | Lấy danh sách sự kiện |
+| GET | `/api/v1/events/:eventId` | Lấy chi tiết sự kiện |
+| PATCH | `/api/v1/events/:eventId/status` | Cập nhật trạng thái sự kiện |
+
+Alias `/api/v1/alerts` cũng trỏ về cùng module với `/events`.
+
+### Notification
+
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| GET | `/api/v1/notifications/logs` | Xem lịch sử gửi cảnh báo |
+| POST | `/api/v1/notifications/alerts/:eventId/send` | Gửi cảnh báo qua email |
+| GET | `/api/v1/alert-delivery-logs` | Alias xem log gửi cảnh báo |
+
+### Stream
+
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| POST | `/api/v1/streams/sessions` | Tạo phiên stream camera WebRTC signaling |
+| DELETE | `/api/v1/streams/sessions/:sessionId` | Kết thúc phiên stream |
+
+## 8. Response format
+
+Thành công:
 
 ```json
 {
@@ -289,130 +224,92 @@ Response thành công:
 }
 ```
 
-Response lỗi:
+Có phân trang:
+
+```json
+{
+  "success": true,
+  "data": [],
+  "message": "Lấy danh sách thành công.",
+  "meta": {
+    "page": 1,
+    "pageSize": 10,
+    "total": 100
+  }
+}
+```
+
+Lỗi:
 
 ```json
 {
   "success": false,
   "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Dữ liệu đầu vào không hợp lệ"
+    "code": "DEVICE_NOT_FOUND",
+    "message": "Thiết bị không tồn tại."
   }
 }
 ```
 
-HTTP status nên dùng:
+## 9. Luồng test nhanh bằng Postman/cURL
 
-| Status | Ý nghĩa |
-|---|---|
-| `200` | Thành công |
-| `201` | Tạo mới thành công |
-| `400` | Request sai định dạng |
-| `401` | Chưa đăng nhập hoặc token sai |
-| `403` | Không có quyền |
-| `404` | Không tìm thấy tài nguyên |
-| `409` | Trùng dữ liệu |
-| `422` | Sai nghiệp vụ |
-| `500` | Lỗi server |
-
----
-
-## 13. Quy trình phát triển backend
-
-1. Tạo branch riêng cho chức năng.
-2. Nếu thay đổi database, sửa `prisma/schema.prisma`.
-3. Tạo migration mới:
+### 9.1. Tạo admin
 
 ```bash
-npx prisma migrate dev --name <ten_migration>
+npm run seed:admin
 ```
 
-4. Sinh lại Prisma Client:
+### 9.2. Login
 
 ```bash
-npm run db:generate
+curl -X POST http://localhost:3000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"phoneNumber":"0900000000","password":"StrongPass@123"}'
 ```
 
-5. Viết controller/service/route tương ứng.
-6. Kiểm tra API bằng Postman/Swagger.
-7. Không commit `.env`, `node_modules`, log, file upload, cache.
+Lưu `accessToken` vào biến `TOKEN`.
 
----
-
-## 14. Các module cần hoàn thiện theo MVP
-
-| Module | Trạng thái nên hoàn thiện |
-|---|---|
-| Auth | Register, login, JWT middleware, role check |
-| Email/OTP | Gửi OTP, verify OTP, lưu OtpLogs, xóa OTP hết hạn |
-| User/Gateway permission | Gán quyền user theo gateway/device |
-| Device | CRUD thiết bị, cập nhật trạng thái online/offline |
-| HealthLog | Nhận/lưu dữ liệu IMU từ gateway |
-| Alert | Tạo cảnh báo, xem lịch sử, cập nhật trạng thái |
-| Threshold | Cấu hình ngưỡng gia tốc, bất động, mất kết nối |
-| Realtime | Socket.io đẩy cảnh báo và trạng thái thiết bị |
-| IoT | MQTT consumer nhận telemetry/candidate event |
-| Stream | WebRTC signaling session cho camera realtime |
-
----
-
-## 15. Sự cố thường gặp
-
-### Không kết nối được PostgreSQL
-
-Kiểm tra:
-
-- PostgreSQL đã chạy chưa.
-- Database đã được tạo chưa.
-- `DATABASE_URL` đúng user/password/host/port/database chưa.
-- Mật khẩu có ký tự đặc biệt đã URL encode chưa.
-
-### Prisma generate/migrate lỗi
-
-Chạy:
+### 9.3. Tạo gateway
 
 ```bash
-npm run db:status
-npm run db:generate
+curl -X POST http://localhost:3000/api/v1/gateways \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"gatewayId":"gw_001","displayName":"Gateway phòng khách","ipAddress":"192.168.1.20"}'
 ```
 
-Nếu lỗi do phiên bản Node.js, kiểm tra lại Node có tương thích với Prisma 7 không.
+### 9.4. Tạo IMU và camera
 
-### Không gửi được email OTP
+```bash
+curl -X POST http://localhost:3000/api/v1/devices \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"deviceId":"dev_imu_01","deviceType":"IMU","gatewayId":"gw_001","displayName":"IMU đeo tay","location":"Phòng khách"}'
 
-Kiểm tra:
+curl -X POST http://localhost:3000/api/v1/devices \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"deviceId":"dev_cam_01","deviceType":"CAMERA","gatewayId":"gw_001","displayName":"Camera phòng khách","location":"Phòng khách","status":"ONLINE"}'
+```
 
-- `EMAIL_USER` đúng chưa.
-- `EMAIL_APP_PASSWORD` đúng chưa.
-- Tài khoản Gmail đã bật 2FA và tạo App Password chưa.
-- Môi trường mạng có chặn SMTP không.
+### 9.5. Gửi telemetry IMU
 
-### API trả 404
+```bash
+curl -X POST http://localhost:3000/api/v1/health-logs \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"deviceId":"dev_imu_01","timestamp":"2026-06-08T03:00:00.000Z","accel":{"x":0.12,"y":2.81,"z":8.91},"gyro":{"x":0.01,"y":0.12,"z":0.03},"tiltAngle":63.5,"batteryLevel":78}'
+```
 
-Trong `server.js`, middleware 404 được đăng ký sau khi loaders chạy. Nếu route không được tìm thấy, kiểm tra:
+### 9.6. Tạo cảnh báo té ngã
 
-- Route đã được import trong `src/loaders/index.js` chưa.
-- Prefix `/api/v1` có đúng không.
-- Method và path trên Postman có khớp không.
+```bash
+curl -X POST http://localhost:3000/api/v1/events \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"eventType":"FALL","deviceId":"dev_imu_01","confidence":0.86,"message":"Phát hiện nghi ngờ té ngã"}'
+```
 
----
+## 10. Ghi chú phạm vi
 
-## 16. Checklist trước khi nộp/demo
-
-- [ ] Server chạy được bằng `npm run dev`.
-- [ ] `/health` trả về `System OK`.
-- [ ] Prisma migration chạy thành công trên database trống.
-- [ ] Register/login hoạt động.
-- [ ] JWT middleware bảo vệ được API riêng tư.
-- [ ] Gửi OTP/email hoạt động hoặc có mock provider rõ ràng.
-- [ ] CRUD device/gateway hoạt động.
-- [ ] Tạo và xem alert hoạt động.
-- [ ] Có Swagger hoặc tài liệu API trong `src/readme.md`.
-
----
-
-## 17. Tài liệu liên quan
-
-- `src/readme.md`: tài liệu API, module backend và convention triển khai.
-- `prisma/schema.prisma`: thiết kế database hiện tại.
-- `prisma/migrations`: lịch sử thay đổi database.
+Backend này hoàn thiện phần REST API, database, authentication, authorization, email OTP và mô phỏng stream session cho MVP. MQTT consumer, Socket.io realtime và WebRTC media relay thật chưa được bật vì package hiện tại chưa có dependency `mqtt`/`socket.io` và gateway/camera thật chưa tích hợp. Các API và schema đã chuẩn bị sẵn để bổ sung các adapter này ở bước sau.

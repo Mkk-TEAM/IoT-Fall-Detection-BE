@@ -1,32 +1,29 @@
-export const handleSuccessResponse = (
-  code = 200,
-  message = "Xử lý thành công",
-  data = null,
-) => ({
-  success: true,
-  code,
-  message,
-  data,
-});
+export function handleSuccessResponse(data = null, message = "Request processed successfully", meta = undefined) {
+  const response = {
+    success: true,
+    data,
+    message,
+  };
 
-export const handleErrorResponse = (
-  code = 500,
-  message = "Internal Server Error",
-  errorCode = "INTERNAL_SERVER_ERROR",
-  details = null,
-) => {
+  if (meta !== undefined) {
+    response.meta = meta;
+  }
+
+  return response;
+}
+
+export function handleErrorResponse(code = "INTERNAL_SERVER_ERROR", message = "Internal server error", details = undefined) {
   const response = {
     success: false,
-    code,
     error: {
-      code: errorCode,
+      code,
       message,
     },
   };
 
-  if (details !== null && details !== undefined) {
+  if (details !== undefined) {
     response.error.details = details;
   }
 
   return response;
-};
+}
