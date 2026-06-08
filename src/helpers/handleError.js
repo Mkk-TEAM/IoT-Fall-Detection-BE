@@ -1,57 +1,122 @@
-import { handleErrorResponse } from "../helpers/handleResponse.js";
+import { handleErrorResponse } from "./handleResponse.js";
 
-export const errorHandler = (err, req, res, next) => {
-    if (err instanceof BadRequestError){
-        err.code = 400;
-    }
-    else if (err instanceof ForbiddenError){
-        err.code = 403;
-    }
-    else if (err instanceof UnAuthorizedError){
-        err.code = 401;
-    }
-    else if (err instanceof NotFoundError){
-        err.code = 404;
-    }
-    else{
-        err.code = 500;
-    }
+export class AppError extends Error {
+  constructor(
+    message = "Internal Server Error",
+    statusCode = 500,
+    errorCode = "INTERNAL_SERVER_ERROR",
+    details = null,
+  ) {
+    super(message);
+    this.name = this.constructor.name;
+    this.statusCode = statusCode;
+    this.code = statusCode;
+    this.errorCode = errorCode;
+    this.details = details;
+    Error.captureStackTrace?.(this, this.constructor);
+  }
+}
 
-    const resError = handleErrorResponse(err.code, err.message);
-    res.status(resError.code).json(resError)
+export class BadRequestError extends AppError {
+  constructor(message = "Dữ liệu đầu vào không hợp lệ", details = null) {
+    super(message, 400, "BAD_REQUEST", details);
+  }
+}
+
+export class UnAuthorizedError extends AppError {
+  constructor(message = "Bạn chưa được xác thực", details = null) {
+    super(message, 401, "UNAUTHORIZED", details);
+  }
+}
+
+export class ForbiddenError extends AppError {
+  constructor(message = "Bạn không có quyền thực hiện thao tác này", details = null) {
+    super(message, 403, "FORBIDDEN", details);
+  }
+}
+
+export class NotFoundError extends AppError {
+  constructor(message = "Không tìm thấy tài nguyên", details = null) {
+    super(message, 404, "NOT_FOUND", details);
+  }
+}
+
+export class ConflictError extends AppError {
+  constructor(message = "Dữ liệu đã tồn tại", details = null) {
+    super(message, 409, "CONFLICT", details);
+  }
+}
+
+export class TooManyRequestsError extends AppError {
+  constructor(message = "Bạn thao tác quá nhanh", details = null) {
+    super(message, 429, "TOO_MANY_REQUESTS", details);
+  }
+}
+
+export class InternalServerError extends AppError {
+  constructor(message = "Lỗi hệ thống", details = null) {
+    super(message, 500, "INTERNAL_SERVER_ERROR", details);
+  }
+}
+
+function mapPrismaError(err) {
+  if (!err?.code) return null;
+
+  switch (err.code) {
+    case "P2002":
+      return new ConflictError("Dữ liệu đã tồn tại trong hệ thống", {
+        target: err.meta?.target,
+      });
+    case "P2025":
+      return new NotFoundError("Không tìm thấy dữ liệu cần thao tác");
+    case "P2003":
+      return new BadRequestError("Dữ liệu liên kết không hợp lệ", {
+        fieldName: err.meta?.field_name,
+      });
+    default:
+      return null;
+  }
+}
+
+export const notFoundHandler = (req, res, next) => {
+  next(new NotFoundError(`Endpoint không tồn tại: ${req.method} ${req.originalUrl}`));
 };
 
-export class BadRequestError extends Error{
-    constructor(message = "BadRequestError"){
-        super(message);
-        this.code = 400
-    }
-}
+export const errorHandler = (err, req, res, next) => {
+  const mappedPrismaError = mapPrismaError(err);
+  const normalizedError = mappedPrismaError || err;
 
-export class ForbiddenError extends Error{
-    constructor(message = "ForbiddenError"){
-        super(message);
-        this.code = 403;
-    }
-}
+  const statusCode = Number.isInteger(normalizedError.statusCode)
+    ? normalizedError.statusCode
+    : Number.isInteger(normalizedError.code)
+      ? normalizedError.code
+      : 500;
 
-export class UnAuthorizedError extends Error{
-    constructor(message = "UnAuthorizedError"){
-        super(message);
-        this.code = 401;
-    }
-}
+  const safeStatusCode = statusCode >= 400 && statusCode <= 599 ? statusCode : 500;
 
-export class NotFoundError extends Error{
-    constructor(message = "NotFoundError"){
-        super(message);
-        this.code = 404;
-    }
-}
+  const message = safeStatusCode === 500 && process.env.NODE_ENV === "production"
+    ? "Lỗi hệ thống"
+    : normalizedError.message || "Internal Server Error";
 
-export class InternalServerError extends Error{
-    constructor(message = "InternalServerError"){
-        super(message);
-        this.code = 500;
-    }
-}
+  const errorCode = normalizedError.errorCode || (safeStatusCode === 500
+    ? "INTERNAL_SERVER_ERROR"
+    : "REQUEST_ERROR");
+
+  if (safeStatusCode >= 500) {
+    console.error("[ERROR]", {
+      method: req.method,
+      url: req.originalUrl,
+      message: normalizedError.message,
+      stack: normalizedError.stack,
+    });
+  }
+
+  const response = handleErrorResponse(
+    safeStatusCode,
+    message,
+    errorCode,
+    normalizedError.details ?? null,
+  );
+
+  return res.status(safeStatusCode).json(response);
+};
