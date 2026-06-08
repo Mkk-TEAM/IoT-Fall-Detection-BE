@@ -1,7 +1,7 @@
 {
-  "name": "dadn-backend",
+  "name": "iot-fall-detection-be",
   "version": "1.0.0",
-  "description": "Backend API for IoT fall detection system for elderly care",
+  "description": "Backend API for IoT fall detection system using IMU and camera.",
   "main": "server.js",
   "type": "module",
   "scripts": {
@@ -12,7 +12,7 @@
     "db:deploy": "npx dotenv -e ./.env -- npx prisma migrate deploy",
     "db:status": "npx dotenv -e ./.env -- npx prisma migrate status",
     "db:studio": "npx dotenv -e ./.env -- npx prisma studio",
-    "db:reset": "npx dotenv -e ./.env -- npx prisma migrate reset"
+    "seed:admin": "node scripts/createAdmin.js"
   },
   "keywords": [
     "iot",

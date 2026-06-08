@@ -1,23 +1,26 @@
-import bcrypt from "bcrypt";
 import prisma from "../loaders/dbLoader.js";
-import { BadRequestError, InternalServerError } from "../helpers/handleError.js";
+import { env } from "../config/env.js";
 import { sendRegisterOTPEmail, sendResetPasswordOTPEmail } from "../config/emailService.js";
-import { getSaltRounds, normalizeEmail, validateEmail } from "../helpers/security.js";
+import { BadRequestError, InternalServerError } from "../helpers/handleError.js";
+import { compareText, generateOtp, hashText } from "../helpers/security.js";
 
-const OTP_RESEND_INTERVAL_MS = Number(process.env.OTP_RESEND_INTERVAL_MS || 60_000);
-const OTP_EXPIRED_MS = Number(process.env.OTP_EXPIRED_MS || 5 * 60_000);
-
-function generateOtp() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
+const PURPOSES = Object.freeze({
+  REGISTER: "REGISTER",
+  RESET_PASSWORD: "RESET_PASSWORD",
+});
 
 class OtpService {
-  async validateResendCooldown(destination) {
+  get expiresInMs() {
+    return env.otpExpiresInMinutes * 60 * 1000;
+  }
+
+  get resendIntervalMs() {
+    return env.otpResendIntervalSeconds * 1000;
+  }
+
+  async validateResendCooldown(destination, purpose) {
     const latestOtpLog = await prisma.otpLog.findFirst({
-      where: {
-        destination,
-        consumedAt: null,
-      },
+      where: { destination, purpose, consumedAt: null },
       orderBy: { createdAt: "desc" },
       select: { createdAt: true },
     });
@@ -25,29 +28,24 @@ class OtpService {
     if (!latestOtpLog) return;
 
     const elapsedTime = Date.now() - new Date(latestOtpLog.createdAt).getTime();
-
-    if (elapsedTime < OTP_RESEND_INTERVAL_MS) {
-      const remainingSeconds = Math.ceil((OTP_RESEND_INTERVAL_MS - elapsedTime) / 1000);
-      throw new BadRequestError(
-        `Vui lòng chờ ${remainingSeconds} giây trước khi yêu cầu gửi OTP mới.`,
-      );
+    if (elapsedTime < this.resendIntervalMs) {
+      const remainingSeconds = Math.ceil((this.resendIntervalMs - elapsedTime) / 1000);
+      throw new BadRequestError(`Vui lòng chờ ${remainingSeconds} giây trước khi yêu cầu gửi OTP mới.`, "OTP_RATE_LIMITED");
     }
   }
 
-  async issueOtp({ email, type = "register", userId = null }) {
-    const destination = normalizeEmail(email);
-    validateEmail(destination);
+  async issueOtp({ userId = null, destination, email, purpose }) {
+    await this.validateResendCooldown(destination, purpose);
 
-    await this.validateResendCooldown(destination);
-
-    const otp = generateOtp();
-    const expiresAt = new Date(Date.now() + OTP_EXPIRED_MS);
-    const otpHash = await bcrypt.hash(otp, getSaltRounds());
+    const otp = generateOtp(6);
+    const otpHash = await hashText(otp);
+    const expiresAt = new Date(Date.now() + this.expiresInMs);
 
     const otpLog = await prisma.otpLog.create({
       data: {
         userId,
         destination,
+        purpose,
         channel: "EMAIL",
         otpHash,
         expiresAt,
@@ -56,68 +54,53 @@ class OtpService {
     });
 
     try {
-      if (type === "register") {
-        await sendRegisterOTPEmail(destination, otp);
-      } else if (type === "reset") {
-        await sendResetPasswordOTPEmail(destination, otp);
+      if (purpose === PURPOSES.REGISTER) {
+        await sendRegisterOTPEmail(email, otp);
       } else {
-        throw new BadRequestError("Loại OTP không hợp lệ");
+        await sendResetPasswordOTPEmail(email, otp);
       }
+
+      if (!env.emailEnabled) {
+        console.log(`[DEV_OTP] ${purpose} -> ${email}: ${otp}`);
+      }
+
+      return { otpLogId: otpLog.otpLogId };
     } catch (error) {
       await prisma.otpLog.deleteMany({ where: { otpLogId: otpLog.otpLogId } });
-
-      if (error instanceof BadRequestError) throw error;
-
-      console.error("[EMAIL_OTP_ERROR]", error);
-      throw new InternalServerError("Không thể gửi mã OTP, vui lòng thử lại sau.");
+      console.error("Lỗi gửi email OTP:", error);
+      throw new InternalServerError("Không thể gửi mã OTP, vui lòng thử lại sau.", "EMAIL_PROVIDER_ERROR");
     }
   }
 
-  async verifyOtp({ email, otp }) {
-    const destination = normalizeEmail(email);
-    validateEmail(destination);
-
-    if (!otp) {
-      throw new BadRequestError("Vui lòng nhập mã OTP");
-    }
-
+  async verifyOtp({ destination, otp, purpose }) {
     const latestOtpLog = await prisma.otpLog.findFirst({
-      where: {
-        destination,
-        consumedAt: null,
-      },
+      where: { destination, purpose, consumedAt: null },
       orderBy: { createdAt: "desc" },
     });
 
     if (!latestOtpLog) {
-      throw new BadRequestError("Vui lòng yêu cầu mã OTP trước.");
+      throw new BadRequestError("Vui lòng yêu cầu mã OTP trước.", "OTP_NOT_FOUND");
     }
 
     if (latestOtpLog.expiresAt < new Date()) {
-      throw new BadRequestError("Mã OTP đã hết hạn.");
+      throw new BadRequestError("Mã OTP đã hết hạn.", "OTP_EXPIRED");
     }
 
-    const isOtpValid = await bcrypt.compare(String(otp), latestOtpLog.otpHash);
+    const isOtpValid = await compareText(otp, latestOtpLog.otpHash);
     if (!isOtpValid) {
-      throw new BadRequestError("Mã OTP không chính xác.");
+      throw new BadRequestError("Mã OTP không chính xác.", "OTP_INVALID");
     }
 
     return latestOtpLog;
   }
 
-  async consumeOtp({ email, db = prisma }) {
-    const destination = normalizeEmail(email);
-
+  async consumeOtp({ destination, purpose }, db = prisma) {
     await db.otpLog.updateMany({
-      where: {
-        destination,
-        consumedAt: null,
-      },
-      data: {
-        consumedAt: new Date(),
-      },
+      where: { destination, purpose, consumedAt: null },
+      data: { consumedAt: new Date() },
     });
   }
 }
 
+export { PURPOSES };
 export default new OtpService();

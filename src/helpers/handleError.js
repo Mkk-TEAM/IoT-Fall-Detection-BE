@@ -1,122 +1,109 @@
+import { Prisma } from "@prisma/client";
 import { handleErrorResponse } from "./handleResponse.js";
+import { env } from "../config/env.js";
 
 export class AppError extends Error {
-  constructor(
-    message = "Internal Server Error",
-    statusCode = 500,
-    errorCode = "INTERNAL_SERVER_ERROR",
-    details = null,
-  ) {
+  constructor(message, statusCode = 500, code = "INTERNAL_SERVER_ERROR", details = undefined) {
     super(message);
     this.name = this.constructor.name;
     this.statusCode = statusCode;
-    this.code = statusCode;
-    this.errorCode = errorCode;
+    this.code = code;
     this.details = details;
     Error.captureStackTrace?.(this, this.constructor);
   }
 }
 
 export class BadRequestError extends AppError {
-  constructor(message = "Dữ liệu đầu vào không hợp lệ", details = null) {
-    super(message, 400, "BAD_REQUEST", details);
+  constructor(message = "Bad request", code = "BAD_REQUEST", details = undefined) {
+    super(message, 400, code, details);
   }
 }
 
 export class UnAuthorizedError extends AppError {
-  constructor(message = "Bạn chưa được xác thực", details = null) {
-    super(message, 401, "UNAUTHORIZED", details);
+  constructor(message = "Unauthorized", code = "UNAUTHORIZED", details = undefined) {
+    super(message, 401, code, details);
   }
 }
 
 export class ForbiddenError extends AppError {
-  constructor(message = "Bạn không có quyền thực hiện thao tác này", details = null) {
-    super(message, 403, "FORBIDDEN", details);
+  constructor(message = "Forbidden", code = "FORBIDDEN", details = undefined) {
+    super(message, 403, code, details);
   }
 }
 
 export class NotFoundError extends AppError {
-  constructor(message = "Không tìm thấy tài nguyên", details = null) {
-    super(message, 404, "NOT_FOUND", details);
+  constructor(message = "Not found", code = "NOT_FOUND", details = undefined) {
+    super(message, 404, code, details);
   }
 }
 
 export class ConflictError extends AppError {
-  constructor(message = "Dữ liệu đã tồn tại", details = null) {
-    super(message, 409, "CONFLICT", details);
+  constructor(message = "Conflict", code = "CONFLICT", details = undefined) {
+    super(message, 409, code, details);
+  }
+}
+
+export class UnprocessableEntityError extends AppError {
+  constructor(message = "Unprocessable entity", code = "UNPROCESSABLE_ENTITY", details = undefined) {
+    super(message, 422, code, details);
   }
 }
 
 export class TooManyRequestsError extends AppError {
-  constructor(message = "Bạn thao tác quá nhanh", details = null) {
-    super(message, 429, "TOO_MANY_REQUESTS", details);
+  constructor(message = "Too many requests", code = "TOO_MANY_REQUESTS", details = undefined) {
+    super(message, 429, code, details);
   }
 }
 
 export class InternalServerError extends AppError {
-  constructor(message = "Lỗi hệ thống", details = null) {
-    super(message, 500, "INTERNAL_SERVER_ERROR", details);
+  constructor(message = "Internal server error", code = "INTERNAL_SERVER_ERROR", details = undefined) {
+    super(message, 500, code, details);
   }
 }
 
-function mapPrismaError(err) {
-  if (!err?.code) return null;
-
-  switch (err.code) {
-    case "P2002":
-      return new ConflictError("Dữ liệu đã tồn tại trong hệ thống", {
-        target: err.meta?.target,
-      });
-    case "P2025":
-      return new NotFoundError("Không tìm thấy dữ liệu cần thao tác");
-    case "P2003":
-      return new BadRequestError("Dữ liệu liên kết không hợp lệ", {
-        fieldName: err.meta?.field_name,
-      });
-    default:
-      return null;
-  }
+export function asyncHandler(fn) {
+  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
-export const notFoundHandler = (req, res, next) => {
-  next(new NotFoundError(`Endpoint không tồn tại: ${req.method} ${req.originalUrl}`));
-};
+function prismaErrorToAppError(error) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2002") {
+      return new ConflictError("Dữ liệu đã tồn tại trong hệ thống", "DUPLICATE_RESOURCE", error.meta);
+    }
 
-export const errorHandler = (err, req, res, next) => {
-  const mappedPrismaError = mapPrismaError(err);
-  const normalizedError = mappedPrismaError || err;
+    if (error.code === "P2025") {
+      return new NotFoundError("Không tìm thấy tài nguyên", "RESOURCE_NOT_FOUND", error.meta);
+    }
 
-  const statusCode = Number.isInteger(normalizedError.statusCode)
-    ? normalizedError.statusCode
-    : Number.isInteger(normalizedError.code)
-      ? normalizedError.code
-      : 500;
+    if (error.code === "P2003") {
+      return new BadRequestError("Dữ liệu tham chiếu không hợp lệ", "FOREIGN_KEY_CONSTRAINT_FAILED", error.meta);
+    }
+  }
 
-  const safeStatusCode = statusCode >= 400 && statusCode <= 599 ? statusCode : 500;
+  return null;
+}
 
-  const message = safeStatusCode === 500 && process.env.NODE_ENV === "production"
-    ? "Lỗi hệ thống"
-    : normalizedError.message || "Internal Server Error";
+export function errorHandler(err, req, res, next) {
+  const mapped = prismaErrorToAppError(err);
+  const error = mapped || err;
 
-  const errorCode = normalizedError.errorCode || (safeStatusCode === 500
-    ? "INTERNAL_SERVER_ERROR"
-    : "REQUEST_ERROR");
+  const statusCode = error.statusCode || 500;
+  const code = error.code || "INTERNAL_SERVER_ERROR";
+  const message = statusCode >= 500 && env.isProduction ? "Internal server error" : error.message || "Internal server error";
+  const details = env.isProduction ? undefined : error.details;
 
-  if (safeStatusCode >= 500) {
+  if (statusCode >= 500) {
     console.error("[ERROR]", {
       method: req.method,
       url: req.originalUrl,
-      message: normalizedError.message,
-      stack: normalizedError.stack,
+      message: error.message,
+      stack: error.stack,
     });
   }
 
-  const response = handleErrorResponse(
-    safeStatusCode,
-    message,
-    errorCode,
-    normalizedError.details ?? null,
-  );
+  return res.status(statusCode).json(handleErrorResponse(code, message, details));
+}
 
-  return res.status(safeStatusCode).json(response);
-};
+export function notFoundHandler(req, res) {
+  return res.status(404).json(handleErrorResponse("ENDPOINT_NOT_FOUND", "Endpoint not found"));
+}
