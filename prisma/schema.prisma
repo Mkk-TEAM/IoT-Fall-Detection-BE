@@ -6,78 +6,237 @@ datasource db {
   provider = "postgresql"
 }
 
-model User {
-  userID       String        @id @default(uuid())
-  fullName     String
-  phoneNumber  String        @unique
-  password     String
-  email        String        @unique
-  userGateways UserGateway[]
+enum UserRole {
+  caregiver
+  admin
 }
 
-model OtpLogs {
-  id          Int      @id @default(autoincrement())
-  phoneNumber String   @map("phone_number")
-  otp         String
-  expiresAt   DateTime @map("expires_at")
-  createdAt   DateTime @default(now()) @map("created_at")
+enum GatewayStatus {
+  ONLINE
+  OFFLINE
+  UNKNOWN
+}
 
-  @@index([phoneNumber])
+enum DeviceType {
+  IMU
+  CAMERA
+  GATEWAY
+}
+
+enum DeviceStatus {
+  REGISTERED
+  ONLINE
+  OFFLINE
+  DISABLED
+  UNKNOWN
+}
+
+enum EventType {
+  FALL
+  INACTIVITY
+  DISCONNECT
+  OUT_OF_RANGE
+}
+
+enum EventPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum EventStatus {
+  UNREAD
+  VIEWED
+  CONFIRMED_FALL
+  FALSE_ALARM
+  RESOLVED
+}
+
+enum AlertChannel {
+  SMS
+  EMAIL
+  PUSH
+}
+
+enum DeliveryStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+model User {
+  userId       String       @id @default(uuid()) @map("user_id")
+  fullName     String       @map("full_name")
+  phoneNumber  String       @unique @map("phone_number")
+  email        String?      @unique
+  passwordHash String       @map("password_hash")
+  role         UserRole     @default(caregiver)
+  deviceToken  String?      @map("device_token")
+  isActive     Boolean      @default(true) @map("is_active")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  ownedGateways      Gateway[]          @relation("GatewayOwner")
+  permissions        Permission[]
+  thresholdConfigs   ThresholdConfig[]  @relation("ThresholdUpdatedBy")
+  alertDeliveryLogs  AlertDeliveryLog[] @relation("AlertRecipientUser")
+  otpLogs            OtpLog[]
+
+  @@map("users")
 }
 
 model Gateway {
-  gatewayID    String        @id
-  lastHearbeat DateTime
-  ipAddress    String
-  status       String
-  alerts       Alert[]
-  devices      Device[]
-  userGateways UserGateway[]
-}
+  gatewayId     String        @id @map("gateway_id")
+  displayName   String?       @map("display_name")
+  status        GatewayStatus @default(UNKNOWN)
+  ipAddress     String?       @map("ip_address")
+  lastHeartbeat DateTime?     @map("last_heartbeat")
+  ownerUserId   String?       @map("owner_user_id")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
 
-model UserGateway {
-  userID    String
-  gatewayID String
-  role      String  @default("viewer")
-  gateway   Gateway @relation(fields: [gatewayID], references: [gatewayID])
-  user      User    @relation(fields: [userID], references: [userID])
+  owner   User?    @relation("GatewayOwner", fields: [ownerUserId], references: [userId], onDelete: SetNull)
+  devices Device[]
+  events  Event[]
 
-  @@id([userID, gatewayID])
+  @@map("gateways")
 }
 
 model Device {
-  status         String
-  deviceID       String      @id
-  deviceType     String
-  gatewayID      String
-  lastHearbeat   DateTime
-  location       String
-  sensitivity    Int
-  stagnationTime Int
-  alerts         Alert[]
-  gateway        Gateway     @relation(fields: [gatewayID], references: [gatewayID])
-  logs           HealthLog[]
+  deviceId      String       @id @map("device_id")
+  deviceType    DeviceType   @map("device_type")
+  gatewayId     String       @map("gateway_id")
+  displayName   String?      @map("display_name")
+  location      String?
+  status        DeviceStatus @default(REGISTERED)
+  batteryLevel  Int?         @map("battery_level")
+  lastHeartbeat DateTime?    @map("last_heartbeat")
+  disabledAt    DateTime?    @map("disabled_at")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  gateway     Gateway      @relation(fields: [gatewayId], references: [gatewayId], onDelete: Restrict)
+  healthLogs  HealthLog[]
+  events      Event[]
+  permissions Permission[]
+
+  @@index([gatewayId])
+  @@index([deviceType, status])
+  @@map("devices")
+}
+
+model Permission {
+  permissionId   String   @id @default(uuid()) @map("permission_id")
+  userId         String   @map("user_id")
+  deviceId       String   @map("device_id")
+  canViewCamera  Boolean  @default(false) @map("can_view_camera")
+  canViewHistory Boolean  @default(false) @map("can_view_history")
+  canUpdateEvent Boolean  @default(false) @map("can_update_event")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user   User   @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  device Device @relation(fields: [deviceId], references: [deviceId], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([deviceId])
+  @@map("permissions")
+}
+
+model Event {
+  eventId         String        @id @default(uuid()) @map("event_id")
+  eventType       EventType     @map("event_type")
+  timestamp       DateTime      @default(now())
+  priority        EventPriority @default(MEDIUM)
+  status          EventStatus   @default(UNREAD)
+  confidence      Float?
+  message         String?
+  rawRef          String?       @map("raw_ref")
+  snapshotUrl     String?       @map("snapshot_url")
+  relatedVideoUrl String?       @map("related_video_url")
+  deviceId        String?       @map("device_id")
+  gatewayId       String?       @map("gateway_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  device            Device?            @relation(fields: [deviceId], references: [deviceId], onDelete: SetNull)
+  gateway           Gateway?           @relation(fields: [gatewayId], references: [gatewayId], onDelete: SetNull)
+  alertDeliveryLogs AlertDeliveryLog[]
+
+  @@index([deviceId, timestamp])
+  @@index([eventType, priority, status])
+  @@map("events")
 }
 
 model HealthLog {
-  logID       Int      @id @default(autoincrement())
-  logType     String
-  movement    Int
-  snapshotURL String?
-  recordedAt  DateTime @default(now())
-  deviceID    String
-  device      Device   @relation(fields: [deviceID], references: [deviceID])
+  logId         String   @id @default(uuid()) @map("log_id")
+  deviceId      String   @map("device_id")
+  recordedAt    DateTime @default(now()) @map("recorded_at")
+  movementLevel Float?   @map("movement_level")
+  accelX        Float?   @map("accel_x")
+  accelY        Float?   @map("accel_y")
+  accelZ        Float?   @map("accel_z")
+  gyroX         Float?   @map("gyro_x")
+  gyroY         Float?   @map("gyro_y")
+  gyroZ         Float?   @map("gyro_z")
+  tiltAngle     Float?   @map("tilt_angle")
+  rawPayload    Json?    @map("raw_payload")
+
+  device Device @relation(fields: [deviceId], references: [deviceId], onDelete: Cascade)
+
+  @@index([deviceId, recordedAt])
+  @@map("health_logs")
 }
 
-model Alert {
-  alertID     Int      @id @default(autoincrement())
-  alertType   String
-  status      String
-  severity    String
-  timestamp   DateTime @default(now())
-  snapshotURL String?
-  deviceID    String?
-  gatewayID   String?
-  device      Device?  @relation(fields: [deviceID], references: [deviceID])
-  gateway     Gateway? @relation(fields: [gatewayID], references: [gatewayID])
+model ThresholdConfig {
+  thresholdConfigId         String   @id @default(uuid()) @map("threshold_config_id")
+  accelerationThreshold     Float    @default(2.8) @map("acceleration_threshold")
+  inactivityThresholdSeconds Int     @default(420) @map("inactivity_threshold_seconds")
+  disconnectThresholdSeconds Int     @default(30) @map("disconnect_threshold_seconds")
+  updatedByUserId           String?  @map("updated_by_user_id")
+  createdAt                 DateTime @default(now()) @map("created_at")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation("ThresholdUpdatedBy", fields: [updatedByUserId], references: [userId], onDelete: SetNull)
+
+  @@map("threshold_configs")
+}
+
+model AlertDeliveryLog {
+  deliveryLogId     String         @id @default(uuid()) @map("delivery_log_id")
+  eventId           String         @map("event_id")
+  recipientUserId   String?        @map("recipient_user_id")
+  recipient         String
+  channel           AlertChannel   @default(SMS)
+  sentAt            DateTime?      @map("sent_at")
+  deliveryStatus    DeliveryStatus @default(PENDING) @map("delivery_status")
+  providerMessageId String?        @map("provider_message_id")
+  errorMessage      String?        @map("error_message")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  event         Event @relation(fields: [eventId], references: [eventId], onDelete: Cascade)
+  recipientUser User? @relation("AlertRecipientUser", fields: [recipientUserId], references: [userId], onDelete: SetNull)
+
+  @@index([eventId])
+  @@index([channel, deliveryStatus])
+  @@map("alert_delivery_logs")
+}
+
+model OtpLog {
+  otpLogId    String   @id @default(uuid()) @map("otp_log_id")
+  userId      String?  @map("user_id")
+  destination String
+  channel     String   @default("EMAIL")
+  otpHash     String   @map("otp_hash")
+  expiresAt   DateTime @map("expires_at")
+  consumedAt  DateTime? @map("consumed_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [userId], onDelete: SetNull)
+
+  @@index([destination])
+  @@index([expiresAt])
+  @@map("otp_logs")
 }
