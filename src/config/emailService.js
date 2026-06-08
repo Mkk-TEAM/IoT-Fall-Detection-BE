@@ -1,71 +1,77 @@
 import nodemailer from "nodemailer";
+import { env } from "./env.js";
 import { InternalServerError } from "../helpers/handleError.js";
 
-let transporter = null;
+let transporter;
 
-function getEmailTransporter() {
-  if (transporter) return transporter;
+function getTransporter() {
+  if (!env.emailEnabled) return null;
 
-  const user = process.env.EMAIL_USER;
-  const pass = process.env.EMAIL_APP_PASSWORD;
-
-  if (!user || !pass) {
-    throw new InternalServerError(
-      "Chưa cấu hình EMAIL_USER hoặc EMAIL_APP_PASSWORD trong file .env",
-    );
+  if (!env.emailUser || !env.emailAppPassword) {
+    throw new InternalServerError("EMAIL_USER hoặc EMAIL_APP_PASSWORD chưa được cấu hình.", "EMAIL_CONFIG_ERROR");
   }
 
-  transporter = nodemailer.createTransport({
-    service: process.env.EMAIL_SERVICE || "gmail",
-    auth: { user, pass },
-  });
+  if (!transporter) {
+    transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: env.emailUser,
+        pass: env.emailAppPassword,
+      },
+    });
+  }
 
   return transporter;
 }
 
-function buildSender() {
-  return process.env.EMAIL_FROM || `"IoT Fall Detection" <${process.env.EMAIL_USER}>`;
+function fromAddress() {
+  return `"${env.emailFromName}" <${env.emailFromAddress || env.emailUser}>`;
 }
 
-async function sendOtpEmail({ to, otp, subject, purpose }) {
-  if (!to || !otp) {
-    throw new InternalServerError("Thiếu email người nhận hoặc OTP khi gửi email");
+async function sendEmail({ to, subject, text, html }) {
+  const mailTransporter = getTransporter();
+
+  if (!mailTransporter) {
+    console.log("[EMAIL_DISABLED]", { to, subject, text });
+    return {
+      messageId: `dev-${Date.now()}`,
+      status: "SKIPPED_DEV_EMAIL_DISABLED",
+    };
   }
 
-  const mailOptions = {
-    from: buildSender(),
+  return mailTransporter.sendMail({
+    from: fromAddress(),
     to,
     subject,
-    text: `Mã xác thực ${purpose} của bạn là: ${otp}. Mã có hiệu lực trong 5 phút. Nếu bạn không yêu cầu thao tác này, vui lòng bỏ qua email.`,
-    html: `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-        <h2>IoT Fall Detection</h2>
-        <p>Mã xác thực ${purpose} của bạn là:</p>
-        <p style="font-size: 28px; font-weight: bold; letter-spacing: 4px;">${otp}</p>
-        <p>Mã có hiệu lực trong <strong>5 phút</strong>.</p>
-        <p>Nếu bạn không yêu cầu thao tác này, vui lòng bỏ qua email.</p>
-      </div>
-    `,
-  };
-
-  const info = await getEmailTransporter().sendMail(mailOptions);
-  return {
-    messageId: info.messageId,
-    accepted: info.accepted,
-    rejected: info.rejected,
-  };
+    text,
+    html,
+  });
 }
 
-export const sendRegisterOTPEmail = async (email, otp) => sendOtpEmail({
-  to: email,
-  otp,
-  subject: "Mã xác thực đăng ký tài khoản",
-  purpose: "đăng ký tài khoản",
-});
+export async function sendRegisterOTPEmail(email, otp) {
+  return sendEmail({
+    to: email,
+    subject: "Mã xác thực đăng ký tài khoản",
+    text: `Mã xác thực đăng ký của bạn là: ${otp}. Mã có hiệu lực trong ${env.otpExpiresInMinutes} phút.`,
+    html: `<p>Mã xác thực đăng ký của bạn là: <b>${otp}</b>.</p><p>Mã có hiệu lực trong ${env.otpExpiresInMinutes} phút.</p>`,
+  });
+}
 
-export const sendResetPasswordOTPEmail = async (email, otp) => sendOtpEmail({
-  to: email,
-  otp,
-  subject: "Mã xác thực đặt lại mật khẩu",
-  purpose: "đặt lại mật khẩu",
-});
+export async function sendResetPasswordOTPEmail(email, otp) {
+  return sendEmail({
+    to: email,
+    subject: "Mã xác thực đặt lại mật khẩu",
+    text: `Mã xác thực đặt lại mật khẩu của bạn là: ${otp}. Mã có hiệu lực trong ${env.otpExpiresInMinutes} phút.`,
+    html: `<p>Mã xác thực đặt lại mật khẩu của bạn là: <b>${otp}</b>.</p><p>Mã có hiệu lực trong ${env.otpExpiresInMinutes} phút.</p>`,
+  });
+}
+
+export async function sendAlertEmail({ to, event }) {
+  const eventTime = event.timestamp ? new Date(event.timestamp).toLocaleString("vi-VN") : new Date().toLocaleString("vi-VN");
+  return sendEmail({
+    to,
+    subject: `[${event.priority || "CRITICAL"}] Cảnh báo ${event.eventType || "bất thường"}`,
+    text: `Cảnh báo: ${event.message || event.eventType}. Thời gian: ${eventTime}. Thiết bị: ${event.deviceId || "không xác định"}.`,
+    html: `<p><b>Cảnh báo:</b> ${event.message || event.eventType}</p><p><b>Thời gian:</b> ${eventTime}</p><p><b>Thiết bị:</b> ${event.deviceId || "không xác định"}</p>`,
+  });
+}
