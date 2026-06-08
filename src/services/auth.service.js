@@ -1,233 +1,248 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import prisma from "../loaders/dbLoader.js";
-import {
-    BadRequestError,
-    InternalServerError,
-    UnAuthorizedError,
-} from "../helpers/handleError.js";
+import { BadRequestError, ConflictError, NotFoundError, UnAuthorizedError } from "../helpers/handleError.js";
 import OtpService from "./otp.service.js";
-import { getSaltRounds } from "../helpers/security.js";
+import {
+  getJwtExpiresIn,
+  getJwtSecret,
+  getSaltRounds,
+  normalizeEmail,
+  normalizePhoneNumber,
+  validateEmail,
+  validatePassword,
+  validatePhoneNumber,
+} from "../helpers/security.js";
 
-const generateID = () => {
-    const timestamp = Date.now().toString(); // Vd: "1731125220000" (13-14 ký tự)
-
-    // Lấy 8 ký tự cuối (hoặc 10 - prefix.length)
-    const suffixLength = 10;
-    const startIndex = timestamp.length - suffixLength;
-
-    return timestamp.substring(startIndex); // Vd: "5220000"
-};
+function mapUserResponse(user) {
+  return {
+    userId: user.userId,
+    fullName: user.fullName,
+    phoneNumber: user.phoneNumber,
+    email: user.email,
+    role: user.role,
+  };
+}
 
 class AuthService {
-    async requestRegisterOtp({ phoneNumber, email }) {
-        if (!phoneNumber || !email) {
-            throw new BadRequestError(
-                "Vui lòng cung cấp số điện thoại và email",
-            );
-        }
+  async requestRegisterOtp({ phoneNumber, email }) {
+    const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+    const normalizedEmail = normalizeEmail(email);
 
-        if (!/^\d{10}$/.test(phoneNumber)) {
-            throw new BadRequestError("Số điện thoại không hợp lệ");
-        }
+    validatePhoneNumber(normalizedPhoneNumber);
+    validateEmail(normalizedEmail);
 
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-            throw new BadRequestError("Email không hợp lệ");
-        }
+    const existedUser = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { phoneNumber: normalizedPhoneNumber },
+          { email: normalizedEmail },
+        ],
+      },
+      select: { userId: true, phoneNumber: true, email: true },
+    });
 
-        const existedUser = await prisma.User.findFirst({
-            where: {
-                OR: [{ phoneNumber }, { email }],
-            },
-            select: { userID: true, phoneNumber: true, email: true },
-        });
-
-        if (existedUser) {
-            if (existedUser.phoneNumber === phoneNumber) {
-                throw new BadRequestError("Số điện thoại này đã được đăng ký");
-            }
-
-            throw new BadRequestError("Email này đã được đăng ký");
-        }
-
-        await OtpService.issueOtp({ phoneNumber, email, type: "register" });
-
-        return { message: "Mã OTP đăng ký đã được gửi đến email của bạn." };
+    if (existedUser) {
+      if (existedUser.phoneNumber === normalizedPhoneNumber) {
+        throw new ConflictError("Số điện thoại này đã được đăng ký");
+      }
+      throw new ConflictError("Email này đã được đăng ký");
     }
 
-    async register(data) {
-        const { fullName, phoneNumber, email, password, otp } = data;
+    await OtpService.issueOtp({ email: normalizedEmail, type: "register" });
+  }
 
-        // 1. Validation cơ bản
-        if (!fullName || !phoneNumber || !email || !password || !otp) {
-            throw new BadRequestError("Thiếu thông tin bắt buộc");
-        }
+  async register(data) {
+    const fullName = String(data.fullName || "").trim();
+    const phoneNumber = normalizePhoneNumber(data.phoneNumber);
+    const email = normalizeEmail(data.email);
+    const password = data.password;
+    const otp = data.otp;
 
-        if (password.length < 6) {
-            throw new BadRequestError("Mật khẩu phải có ít nhất 6 ký tự");
-        }
-
-        if (!/^\d{10}$/.test(phoneNumber)) {
-            throw new BadRequestError("Số điện thoại không hợp lệ");
-        }
-
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-            throw new BadRequestError("Email không hợp lệ");
-        }
-
-        const existedUser = await prisma.User.findFirst({
-            where: {
-                OR: [{ phoneNumber }, { email }],
-            },
-            select: { userID: true, phoneNumber: true, email: true },
-        });
-
-        if (existedUser) {
-            if (existedUser.phoneNumber === phoneNumber) {
-                throw new BadRequestError("Số điện thoại này đã được đăng ký");
-            }
-
-            throw new BadRequestError("Email này đã được đăng ký");
-        }
-
-        await OtpService.verifyOtp({ phoneNumber, otp });
-
-        // 2. Hash password ngoài transaction để giảm thời gian khóa record trong DB
-        const hashedPassword = await bcrypt.hash(password, getSaltRounds());
-
-        try {
-            // 3. Sử dụng trực tiếp create (tận dụng constraint của DB)
-            const newUser = await prisma.User.create({
-                data: {
-                    userID: generateID(),
-                    fullName,
-                    phoneNumber,
-                    email,
-                    password: hashedPassword,
-                },
-                select: {
-                    userID: true,
-                    fullName: true,
-                    phoneNumber: true,
-                    email: true,
-                },
-            });
-
-            await OtpService.clearOtpByPhone(phoneNumber);
-
-            return newUser;
-        } catch (error) {
-            // Log chi tiết để debug
-            console.error("Lỗi đăng ký:", error);
-
-            if (error.code === "P2002") {
-                const message = error.message; // Lấy thông báo lỗi thô của Prisma
-                if (message.includes("phoneNumber")) {
-                    throw new BadRequestError(
-                        "Số điện thoại này đã được đăng ký",
-                    );
-                }
-                if (message.includes("email")) {
-                    throw new BadRequestError("Email này đã được đăng ký");
-                }
-
-                // Fallback nếu không khớp cột cụ thể
-                throw new BadRequestError("Dữ liệu đã tồn tại trong hệ thống");
-            }
-            throw new InternalServerError(
-                "Đã có lỗi xảy ra trong quá trình đăng ký",
-            );
-        }
+    if (!fullName || !phoneNumber || !email || !password || !otp) {
+      throw new BadRequestError("Thiếu thông tin bắt buộc");
     }
 
-    async login(data) {
-        const { phoneNumber, password } = data;
+    validatePhoneNumber(phoneNumber);
+    validateEmail(email);
+    validatePassword(password);
 
-        if (!phoneNumber || !password) {
-            throw new BadRequestError(
-                "Vui lòng cung cấp đầy đủ số điện thoại và mật khẩu",
-            );
-        }
+    const existedUser = await prisma.user.findFirst({
+      where: {
+        OR: [{ phoneNumber }, { email }],
+      },
+      select: { userId: true, phoneNumber: true, email: true },
+    });
 
-        // 1. Tìm user
-        const user = await prisma.User.findFirst({
-            where: {
-                phoneNumber: phoneNumber,
-            },
-        });
-
-        if (!user) {
-            throw new UnAuthorizedError("Thông tin đăng nhập không hợp lệ");
-        }
-
-        // 2. Kiểm tra password
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-            throw new UnAuthorizedError("Thông tin đăng nhập không hợp lệ");
-        }
-
-        const payload = {
-            userID: user.userID,
-            phoneNumber: user.phoneNumber,
-        };
-
-        const token = jwt.sign(payload, process.env.JWT_SECRET, {
-            expiresIn: process.env.JWT_EXPIRES_IN,
-        });
-
-        return {
-            token,
-            userInfo: {
-                userID: user.userID,
-                fullName: user.fullName,
-                phoneNumber: user.phoneNumber,
-                email: user.email,
-            },
-        };
+    if (existedUser) {
+      if (existedUser.phoneNumber === phoneNumber) {
+        throw new ConflictError("Số điện thoại này đã được đăng ký");
+      }
+      throw new ConflictError("Email này đã được đăng ký");
     }
 
-    async verifyForgot({ phoneNumber }) {
-        if (!phoneNumber) {
-            throw new BadRequestError("Vui lòng cung cấp số điện thoại");
-        }
+    await OtpService.verifyOtp({ email, otp });
 
-        // 1. Kiểm tra user có tồn tại không
-        const user = await prisma.User.findFirst({
-            where: { phoneNumber: phoneNumber },
-        });
+    const passwordHash = await bcrypt.hash(password, getSaltRounds());
 
-        // 2. Kiểm tra user có tồn tại không
-        if (!user) {
-            throw new BadRequestError("Số điện thoại này chưa được đăng ký.");
-        }
+    const newUser = await prisma.$transaction(async (tx) => {
+      const createdUser = await tx.user.create({
+        data: {
+          fullName,
+          phoneNumber,
+          email,
+          passwordHash,
+          role: "caregiver",
+        },
+        select: {
+          userId: true,
+          fullName: true,
+          phoneNumber: true,
+          email: true,
+          role: true,
+        },
+      });
 
-        await OtpService.issueOtp({ phoneNumber, email: user.email, type: "reset" });
+      await OtpService.consumeOtp({ email, db: tx });
+      return createdUser;
+    });
 
-        return { message: "Mã xác thực đã được gửi đến email của bạn." };
+    return mapUserResponse(newUser);
+  }
+
+  async login({ phoneNumber, password }) {
+    const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+
+    if (!normalizedPhoneNumber || !password) {
+      throw new BadRequestError("Vui lòng cung cấp đầy đủ số điện thoại và mật khẩu");
     }
 
-    async resetPassword({ phoneNumber, newPassword, otp }) {
-        if (!phoneNumber || !newPassword || !otp) {
-            throw new BadRequestError("Thiếu dữ liệu đặt lại mật khẩu.");
-        }
+    validatePhoneNumber(normalizedPhoneNumber);
 
-        await OtpService.verifyOtp({ phoneNumber, otp });
+    const user = await prisma.user.findUnique({
+      where: { phoneNumber: normalizedPhoneNumber },
+    });
 
-        // 5. Hash mật khẩu (ép kiểu về số)
-        const hashed = await bcrypt.hash(newPassword, getSaltRounds());
-
-        // 6. Cập nhật và consume OTP trong cùng transaction
-        await prisma.$transaction(async (tx) => {
-            await tx.User.updateMany({
-                where: { phoneNumber },
-                data: { password: hashed },
-            });
-
-            await OtpService.consumeOtpByPhone(phoneNumber, tx);
-        });
-
-        return { message: "Đổi mật khẩu thành công!" };
+    if (!user || user.isActive === false) {
+      throw new UnAuthorizedError("Thông tin đăng nhập không hợp lệ");
     }
+
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
+    if (!isMatch) {
+      throw new UnAuthorizedError("Thông tin đăng nhập không hợp lệ");
+    }
+
+    const payload = {
+      userId: user.userId,
+      phoneNumber: user.phoneNumber,
+      role: user.role,
+    };
+
+    const accessToken = jwt.sign(payload, getJwtSecret(), {
+      expiresIn: getJwtExpiresIn(),
+    });
+
+    return {
+      accessToken,
+      tokenType: "Bearer",
+      expiresIn: getJwtExpiresIn(),
+      user: mapUserResponse(user),
+    };
+  }
+
+  async getMe(userId) {
+    if (!userId) {
+      throw new UnAuthorizedError("Token không chứa thông tin người dùng");
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { userId },
+      select: {
+        userId: true,
+        fullName: true,
+        phoneNumber: true,
+        email: true,
+        role: true,
+        isActive: true,
+      },
+    });
+
+    if (!user || user.isActive === false) {
+      throw new NotFoundError("Không tìm thấy người dùng hoặc tài khoản đã bị vô hiệu hóa");
+    }
+
+    return mapUserResponse(user);
+  }
+
+  async verifyForgot({ phoneNumber }) {
+    const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+
+    if (!normalizedPhoneNumber) {
+      throw new BadRequestError("Vui lòng cung cấp số điện thoại");
+    }
+
+    validatePhoneNumber(normalizedPhoneNumber);
+
+    const user = await prisma.user.findUnique({
+      where: { phoneNumber: normalizedPhoneNumber },
+      select: {
+        userId: true,
+        email: true,
+        isActive: true,
+      },
+    });
+
+    if (!user || user.isActive === false) {
+      throw new BadRequestError("Số điện thoại này chưa được đăng ký.");
+    }
+
+    if (!user.email) {
+      throw new BadRequestError("Tài khoản chưa có email để nhận OTP đặt lại mật khẩu.");
+    }
+
+    await OtpService.issueOtp({ email: user.email, type: "reset", userId: user.userId });
+  }
+
+  async resetPassword({ phoneNumber, newPassword, otp }) {
+    const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+
+    if (!normalizedPhoneNumber || !newPassword || !otp) {
+      throw new BadRequestError("Thiếu dữ liệu đặt lại mật khẩu.");
+    }
+
+    validatePhoneNumber(normalizedPhoneNumber);
+    validatePassword(newPassword);
+
+    const user = await prisma.user.findUnique({
+      where: { phoneNumber: normalizedPhoneNumber },
+      select: {
+        userId: true,
+        email: true,
+        isActive: true,
+      },
+    });
+
+    if (!user || user.isActive === false) {
+      throw new BadRequestError("Số điện thoại này chưa được đăng ký.");
+    }
+
+    if (!user.email) {
+      throw new BadRequestError("Tài khoản chưa có email để xác thực đặt lại mật khẩu.");
+    }
+
+    await OtpService.verifyOtp({ email: user.email, otp });
+
+    const passwordHash = await bcrypt.hash(newPassword, getSaltRounds());
+
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { userId: user.userId },
+        data: { passwordHash },
+      });
+
+      await OtpService.consumeOtp({ email: user.email, db: tx });
+    });
+  }
 }
 
 export default new AuthService();

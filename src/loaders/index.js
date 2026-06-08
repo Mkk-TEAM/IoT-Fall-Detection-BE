@@ -1,12 +1,10 @@
-import expressLoader from './express.js';
-import { connectDB } from './dbLoader.js'; // Giả sử bạn để hàm kết nối ở đây
+import expressLoader from "./express.js";
+import { connectDB } from "./dbLoader.js";
 
 export default async (app) => {
-    // 1. Kết nối DB trước
-    await connectDB();
-    console.log('✅ Database đã kết nối');
+  await connectDB();
+  console.log("✅ Database loader đã nạp");
 
-    // 2. Nạp các cấu hình Express (Routes, Swagger, ErrorHandler)
-    await expressLoader(app);
-    console.log('✅ Express routes & middlewares đã nạp');
+  await expressLoader(app);
+  console.log("✅ Express routes, Swagger và error handler đã nạp");
 };
