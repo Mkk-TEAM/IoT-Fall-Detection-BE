@@ -1,16 +1,14 @@
-
-import rootRouter from '../routes/root.router.js';
-import { errorHandler } from '../helpers/handleError.js';
-import { setupSwagger } from './swagger.config.js'; 
-// Import các cấu hình khác nếu có (swagger, cron...)
+import rootRouter from "../routes/root.router.js";
+import { errorHandler, notFoundHandler } from "../helpers/handleError.js";
+import { setupSwagger } from "./swagger.config.js";
 
 export default async (app) => {
-    // Nạp tất cả các router với tiền tố API chung
-    app.use(rootRouter);
+  const apiPrefix = process.env.API_PREFIX || "/api/v1";
 
-    // Xử lý lỗi (phải để sau các route)
-    app.use(errorHandler);
+  setupSwagger(app);
 
-    // Nạp Swagger UI (nếu có)
-    await setupSwagger(app);
+  app.use(apiPrefix, rootRouter);
+
+  app.use(notFoundHandler);
+  app.use(errorHandler);
 };

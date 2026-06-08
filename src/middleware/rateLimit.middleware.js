@@ -1,41 +1,53 @@
-import { BadRequestError } from "../helpers/handleError.js";
+import { TooManyRequestsError } from "../helpers/handleError.js";
 
 const rateLimitStore = new Map();
 
 function getClientIp(req) {
-    const forwarded = req.headers["x-forwarded-for"];
-    if (typeof forwarded === "string" && forwarded.length > 0) {
-        return forwarded.split(",")[0].trim();
-    }
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.length > 0) {
+    return forwarded.split(",")[0].trim();
+  }
 
-    return req.ip || req.socket?.remoteAddress || "unknown";
+  return req.ip || req.socket?.remoteAddress || "unknown";
 }
 
-export function createRateLimit({ windowMs, maxRequests }) {
-    return (req, res, next) => {
-        const key = `${getClientIp(req)}:${req.path}`;
-        const now = Date.now();
-        const current = rateLimitStore.get(key);
+function cleanupExpiredKeys(now) {
+  for (const [key, value] of rateLimitStore.entries()) {
+    if (now > value.expiresAt) {
+      rateLimitStore.delete(key);
+    }
+  }
+}
 
-        if (!current || now > current.expiresAt) {
-            rateLimitStore.set(key, {
-                count: 1,
-                expiresAt: now + windowMs,
-            });
-            return next();
-        }
+export function createRateLimit({ windowMs = 60_000, maxRequests = 30, keyPrefix = "default" } = {}) {
+  return (req, res, next) => {
+    const now = Date.now();
+    cleanupExpiredKeys(now);
 
-        current.count += 1;
+    const key = `${keyPrefix}:${getClientIp(req)}:${req.method}:${req.path}`;
+    const current = rateLimitStore.get(key);
 
-        if (current.count > maxRequests) {
-            const retryAfterSeconds = Math.ceil(
-                (current.expiresAt - now) / 1000,
-            );
-            throw new BadRequestError(
-                `Bạn thao tác quá nhanh. Vui lòng thử lại sau ${retryAfterSeconds} giây.`,
-            );
-        }
+    if (!current || now > current.expiresAt) {
+      rateLimitStore.set(key, {
+        count: 1,
+        expiresAt: now + windowMs,
+      });
+      return next();
+    }
 
-        return next();
-    };
+    current.count += 1;
+
+    if (current.count > maxRequests) {
+      const retryAfterSeconds = Math.ceil((current.expiresAt - now) / 1000);
+      res.set("Retry-After", String(retryAfterSeconds));
+      return next(
+        new TooManyRequestsError(
+          `Bạn thao tác quá nhanh. Vui lòng thử lại sau ${retryAfterSeconds} giây.`,
+          { retryAfterSeconds },
+        ),
+      );
+    }
+
+    return next();
+  };
 }
