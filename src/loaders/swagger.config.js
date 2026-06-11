@@ -51,6 +51,7 @@ const swaggerDefinition = {
     "/events/{eventId}/status": { patch: { tags: ["Events"], security: [{ bearerAuth: [] }] } },
     "/notifications/logs": { get: { tags: ["Notifications"], security: [{ bearerAuth: [] }] } },
     "/notifications/alerts/{eventId}/send": { post: { tags: ["Notifications"], security: [{ bearerAuth: [] }] } },
+    "/streams/{gatewayId}": { get: { tags: ["Streams"], security: [{ bearerAuth: [] }] } },
     "/streams/sessions": { post: { tags: ["Streams"], security: [{ bearerAuth: [] }] } },
     "/streams/sessions/{sessionId}": { delete: { tags: ["Streams"], security: [{ bearerAuth: [] }] } },
   },

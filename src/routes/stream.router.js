@@ -4,6 +4,7 @@ import { requireDeviceAccess, verifyToken } from "../middleware/auth.middleware.
 
 const router = express.Router();
 router.use(verifyToken);
+router.get("/:gatewayId", StreamController.getGatewayStream);
 router.post("/sessions", requireDeviceAccess({ permission: "canViewCamera" }), StreamController.createSession);
 router.delete("/sessions/:sessionId", StreamController.closeSession);
 

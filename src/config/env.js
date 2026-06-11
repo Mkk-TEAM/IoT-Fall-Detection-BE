@@ -39,4 +39,6 @@ export const env = Object.freeze({
 
   streamSessionTtlSeconds: parseNumber(process.env.STREAM_SESSION_TTL_SECONDS, 300),
   stunUrl: process.env.STUN_URL || "stun:stun.l.google.com:19302",
+  edgeStreamScheme: process.env.EDGE_STREAM_SCHEME || "http",
+  edgeStreamPort: parseNumber(process.env.EDGE_STREAM_PORT, 8081),
 });
