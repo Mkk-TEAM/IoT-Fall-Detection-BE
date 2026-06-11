@@ -104,6 +104,18 @@ npm start
 - API base URL: `http://localhost:3000/api/v1`
 - Swagger UI: `http://localhost:3000/swagger/api`
 
+Truy cập từ máy khác trong cùng LAN:
+
+```text
+http://<LAN_IP>:3000/health
+http://<LAN_IP>:3000/api/v1
+http://<LAN_IP>:3000/swagger/api
+```
+
+Khi frontend chạy trên máy khác hoặc truy cập qua IP LAN, đặt `CORS_ORIGIN`
+theo địa chỉ frontend, ví dụ `http://192.168.1.10:5173`. Trong môi trường
+development nội bộ có thể dùng `CORS_ORIGIN=*` để test nhanh.
+
 ## 6. Biến môi trường chính
 
 ```env
@@ -259,12 +271,22 @@ Lỗi:
 npm run seed:admin
 ```
 
+Hoặc tạo nhanh admin dev:
+
+```bash
+ADMIN_FULL_NAME="Local Admin" \
+ADMIN_PHONE_NUMBER="0900000000" \
+ADMIN_EMAIL="admin@example.com" \
+ADMIN_PASSWORD="Admin@123456" \
+npm run seed:admin
+```
+
 ### 9.2. Login
 
 ```bash
 curl -X POST http://localhost:3000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"phoneNumber":"0900000000","password":"StrongPass@123"}'
+  -d '{"phoneNumber":"0900000000","password":"Admin@123456"}'
 ```
 
 Lưu `accessToken` vào biến `TOKEN`.
