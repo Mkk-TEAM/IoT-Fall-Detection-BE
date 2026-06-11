@@ -103,6 +103,7 @@ npm start
 - Health check: `GET http://localhost:3000/health`
 - API base URL: `http://localhost:3000/api/v1`
 - Swagger UI: `http://localhost:3000/swagger/api`
+- Stream discovery: `GET http://localhost:3000/api/v1/streams/:gatewayId`
 
 Truy cập từ máy khác trong cùng LAN:
 
@@ -134,6 +135,8 @@ OTP_EXPIRES_IN_MINUTES=5
 OTP_RESEND_INTERVAL_SECONDS=60
 STREAM_SESSION_TTL_SECONDS=300
 STUN_URL=stun:stun.l.google.com:19302
+EDGE_STREAM_SCHEME=http
+EDGE_STREAM_PORT=8081
 ```
 
 Khi `EMAIL_ENABLED=false`, hệ thống không gửi email thật mà log OTP ra terminal để test nhanh.
@@ -221,6 +224,7 @@ Alias `/api/v1/alerts` cũng trỏ về cùng module với `/events`.
 
 | Method | Endpoint | Mô tả |
 |---|---|---|
+| GET | `/api/v1/streams/:gatewayId` | Lấy MJPEG stream URL thật từ edge gateway |
 | POST | `/api/v1/streams/sessions` | Tạo phiên stream camera WebRTC signaling |
 | DELETE | `/api/v1/streams/sessions/:sessionId` | Kết thúc phiên stream |
 
@@ -334,4 +338,4 @@ curl -X POST http://localhost:3000/api/v1/events \
 
 ## 10. Ghi chú phạm vi
 
-Backend này hoàn thiện phần REST API, database, authentication, authorization, email OTP và mô phỏng stream session cho MVP. MQTT consumer, Socket.io realtime và WebRTC media relay thật chưa được bật vì package hiện tại chưa có dependency `mqtt`/`socket.io` và gateway/camera thật chưa tích hợp. Các API và schema đã chuẩn bị sẵn để bổ sung các adapter này ở bước sau.
+Backend này hoàn thiện phần REST API, database, authentication, authorization, email OTP và stream discovery cho edge MJPEG. `POST /streams/sessions` hiện vẫn chỉ tạo session/signaling metadata trong memory, chưa relay media WebRTC thật. MQTT consumer, Socket.io realtime và WebRTC media relay thật chưa được bật vì gateway/camera thật chưa tích hợp ở backend.
