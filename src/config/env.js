@@ -41,4 +41,6 @@ export const env = Object.freeze({
   stunUrl: process.env.STUN_URL || "stun:stun.l.google.com:19302",
   edgeStreamScheme: process.env.EDGE_STREAM_SCHEME || "http",
   edgeStreamPort: parseNumber(process.env.EDGE_STREAM_PORT, 8081),
+
+  edgeSecret: process.env.EDGE_SECRET || "",
 });

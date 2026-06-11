@@ -8,6 +8,7 @@ import healthLogRouter from "./healthLog.router.js";
 import eventRouter from "./event.router.js";
 import notificationRouter from "./notification.router.js";
 import streamRouter from "./stream.router.js";
+import internalRouter from "./internal.router.js";
 
 const router = express.Router();
 
@@ -22,5 +23,6 @@ router.use("/alerts", eventRouter);
 router.use("/notifications", notificationRouter);
 router.use("/alert-delivery-logs", notificationRouter);
 router.use("/streams", streamRouter);
+router.use("/internal", internalRouter);
 
 export default router;
