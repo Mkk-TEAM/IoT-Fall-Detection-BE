@@ -117,3 +117,11 @@ export function optionalAuth(req, res, next) {
   if (!authHeader?.startsWith("Bearer ")) return next();
   return verifyToken(req, res, next);
 }
+
+export function verifyEdgeSecret(req, res, next) {
+  const secret = req.headers["x-edge-secret"];
+  if (!env.edgeSecret || secret !== env.edgeSecret) {
+    return next(new UnAuthorizedError("Invalid or missing X-Edge-Secret header."));
+  }
+  return next();
+}
