@@ -64,7 +64,7 @@ cp .env.example .env
 Chỉnh file `.env` theo máy của bạn. Với PostgreSQL local không password trên macOS, ví dụ:
 
 ```env
-DATABASE_URL="postgresql://nguyennhathuy@127.0.0.1:5432/dadn_db?schema=public"
+DATABASE_URL="postgresql://<user:password>@127.0.0.1:5432/dadn_db?schema=public"
 ```
 
 Tạo database:
@@ -111,6 +111,7 @@ NODE_ENV=development
 PORT=3000
 API_PREFIX=/api/v1
 CORS_ORIGIN=http://localhost:5173
+EDGE_SECRET=replace_with_edge_shared_secret
 DATABASE_URL="postgresql://user:password@127.0.0.1:5432/dadn_db?schema=public"
 SALT_ROUNDS=10
 JWT_SECRET=replace_with_a_long_random_secret
@@ -185,6 +186,16 @@ Khi `EMAIL_ENABLED=false`, hệ thống không gửi email thật mà log OTP ra
 |---|---|---|
 | POST | `/api/v1/health-logs` | Lưu telemetry IMU |
 | GET | `/api/v1/health-logs` | Truy vấn dữ liệu IMU |
+
+
+### Device Status Log
+
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| GET | `/api/v1/device-status-logs` | Truy vấn lịch sử tình trạng thiết bị/gateway |
+| GET | `/api/v1/device-status-logs/latest` | Lấy tình trạng mới nhất của thiết bị/gateway |
+| POST | `/api/v1/device-status-logs` | Tạo log tình trạng thủ công khi demo/debug |
+| POST | `/api/v1/internal/device-status-logs` | Gateway/edge ghi log tình trạng bằng `X-Edge-Secret` |
 
 ### Event / Alert
 

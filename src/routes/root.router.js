@@ -8,6 +8,8 @@ import healthLogRouter from "./healthLog.router.js";
 import eventRouter from "./event.router.js";
 import notificationRouter from "./notification.router.js";
 import streamRouter from "./stream.router.js";
+import deviceStatusLogRouter from "./deviceStatusLog.router.js";
+import internalRouter from "./internal.router.js";
 
 const router = express.Router();
 
@@ -17,10 +19,12 @@ router.use("/devices", deviceRouter);
 router.use("/permissions", permissionRouter);
 router.use("/thresholds", thresholdRouter);
 router.use("/health-logs", healthLogRouter);
+router.use("/device-status-logs", deviceStatusLogRouter);
 router.use("/events", eventRouter);
 router.use("/alerts", eventRouter);
 router.use("/notifications", notificationRouter);
 router.use("/alert-delivery-logs", notificationRouter);
 router.use("/streams", streamRouter);
+router.use("/internal", internalRouter);
 
 export default router;

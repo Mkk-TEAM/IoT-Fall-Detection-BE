@@ -137,6 +137,26 @@ CREATE TABLE "otp_logs" (
     CONSTRAINT "otp_logs_pkey" PRIMARY KEY ("otp_log_id")
 );
 
+CREATE TABLE "device_status_logs" (
+    "status_log_id" TEXT NOT NULL,
+    "device_id" TEXT,
+    "gateway_id" TEXT,
+    "source" TEXT,
+    "status" "DeviceStatus" NOT NULL DEFAULT 'UNKNOWN',
+    "status_message" TEXT,
+    "battery_level" INTEGER,
+    "ip_address" TEXT,
+    "signal_strength" INTEGER,
+    "camera_opened" BOOLEAN,
+    "stream_status" TEXT,
+    "frame_rate" INTEGER,
+    "resolution" TEXT,
+    "recorded_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "raw_payload" JSONB,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "device_status_logs_pkey" PRIMARY KEY ("status_log_id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "users_phone_number_key" ON "users"("phone_number");
 CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
@@ -154,6 +174,9 @@ CREATE INDEX "alert_delivery_logs_event_id_idx" ON "alert_delivery_logs"("event_
 CREATE INDEX "alert_delivery_logs_channel_delivery_status_idx" ON "alert_delivery_logs"("channel", "delivery_status");
 CREATE INDEX "otp_logs_destination_purpose_idx" ON "otp_logs"("destination", "purpose");
 CREATE INDEX "otp_logs_expires_at_idx" ON "otp_logs"("expires_at");
+CREATE INDEX "device_status_logs_device_id_recorded_at_idx" ON "device_status_logs"("device_id", "recorded_at");
+CREATE INDEX "device_status_logs_gateway_id_recorded_at_idx" ON "device_status_logs"("gateway_id", "recorded_at");
+CREATE INDEX "device_status_logs_status_recorded_at_idx" ON "device_status_logs"("status", "recorded_at");
 
 -- AddForeignKey
 ALTER TABLE "gateways" ADD CONSTRAINT "gateways_owner_user_id_fkey" FOREIGN KEY ("owner_user_id") REFERENCES "users"("user_id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -167,3 +190,5 @@ ALTER TABLE "threshold_configs" ADD CONSTRAINT "threshold_configs_updated_by_use
 ALTER TABLE "alert_delivery_logs" ADD CONSTRAINT "alert_delivery_logs_event_id_fkey" FOREIGN KEY ("event_id") REFERENCES "events"("event_id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "alert_delivery_logs" ADD CONSTRAINT "alert_delivery_logs_recipient_user_id_fkey" FOREIGN KEY ("recipient_user_id") REFERENCES "users"("user_id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "otp_logs" ADD CONSTRAINT "otp_logs_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("user_id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "device_status_logs" ADD CONSTRAINT "device_status_logs_device_id_fkey" FOREIGN KEY ("device_id") REFERENCES "devices"("device_id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "device_status_logs" ADD CONSTRAINT "device_status_logs_gateway_id_fkey" FOREIGN KEY ("gateway_id") REFERENCES "gateways"("gateway_id") ON DELETE SET NULL ON UPDATE CASCADE;

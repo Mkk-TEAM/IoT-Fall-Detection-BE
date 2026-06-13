@@ -17,6 +17,7 @@ export const env = Object.freeze({
   apiPrefix: process.env.API_PREFIX || "/api/v1",
   corsOrigin: process.env.CORS_ORIGIN || "*",
   trustProxy: parseBoolean(process.env.TRUST_PROXY, false),
+  edgeSecret: process.env.EDGE_SECRET,
 
   databaseUrl: process.env.DATABASE_URL,
 
