@@ -7,6 +7,7 @@ const commonErrorResponses = {
   401: { $ref: "#/components/responses/Unauthorized" },
   403: { $ref: "#/components/responses/Forbidden" },
   404: { $ref: "#/components/responses/NotFound" },
+  409: { $ref: "#/components/responses/Conflict" },
   500: { $ref: "#/components/responses/InternalServerError" },
 };
 
@@ -16,7 +17,7 @@ const swaggerDefinition = {
     title: "IoT Fall Detection API",
     version: "1.0.0",
     description:
-      "Backend API cho hệ thống phát hiện té ngã trong nhà cho người cao tuổi bằng IMU và Camera. Tài liệu Swagger này hiện mô tả các nhóm API ngoài Auth, Gateway và Device vì các nhóm đó đang được thành viên khác trong nhóm viết lại.",
+      "Backend API cho hệ thống phát hiện té ngã trong nhà cho người cao tuổi bằng IMU và Camera. Tài liệu Swagger mô tả các REST API chính của backend MVP, bao gồm Auth, Gateway, Device, Permission, Threshold, HealthLog, DeviceStatusLog, Event, Notification và Stream.",
   },
   servers: [
     {
@@ -25,6 +26,9 @@ const swaggerDefinition = {
     },
   ],
   tags: [
+    { name: "Auth", description: "Đăng ký, đăng nhập, OTP, JWT và tài khoản hiện tại" },
+    { name: "Gateways", description: "Quản lý gateway trung gian giữa edge device và backend" },
+    { name: "Devices", description: "Quản lý IMU, camera và trạng thái thiết bị" },
     { name: "Permissions", description: "Phân quyền truy cập thiết bị cho người dùng" },
     { name: "Thresholds", description: "Cấu hình ngưỡng cảnh báo té ngã, bất động và mất kết nối" },
     { name: "HealthLogs", description: "Dữ liệu telemetry/health log từ IMU" },
@@ -102,6 +106,161 @@ const swaggerDefinition = {
               message: { type: "string", example: "Dữ liệu đầu vào không hợp lệ" },
             },
           },
+        },
+      },
+      User: {
+        type: "object",
+        properties: {
+          userId: { type: "string", format: "uuid" },
+          fullName: { type: "string", example: "Nguyen Van A" },
+          phoneNumber: { type: "string", example: "0912345678" },
+          email: { type: "string", format: "email", example: "caregiver@example.com" },
+          role: { type: "string", enum: ["admin", "caregiver"], example: "caregiver" },
+          deviceToken: { type: "string", nullable: true, example: "optional_fcm_token" },
+          isActive: { type: "boolean", example: true },
+          createdAt: { type: "string", format: "date-time" },
+        },
+      },
+      AuthRegisterOtpRequest: {
+        type: "object",
+        required: ["phoneNumber", "email"],
+        properties: {
+          phoneNumber: { type: "string", example: "0912345678", description: "Số điện thoại 10 chữ số" },
+          email: { type: "string", format: "email", example: "caregiver@example.com" },
+        },
+      },
+      AuthRegisterRequest: {
+        type: "object",
+        required: ["fullName", "phoneNumber", "email", "password", "otp"],
+        properties: {
+          fullName: { type: "string", example: "Nguyen Van A" },
+          phoneNumber: { type: "string", example: "0912345678" },
+          email: { type: "string", format: "email", example: "caregiver@example.com" },
+          password: { type: "string", format: "password", example: "StrongPass@123" },
+          otp: { type: "string", example: "123456" },
+          deviceToken: { type: "string", nullable: true, example: "optional_fcm_token" },
+        },
+      },
+      AuthLoginRequest: {
+        type: "object",
+        required: ["phoneNumber", "password"],
+        properties: {
+          phoneNumber: { type: "string", example: "0912345678" },
+          password: { type: "string", format: "password", example: "StrongPass@123" },
+        },
+      },
+      AuthLoginResponseData: {
+        type: "object",
+        properties: {
+          accessToken: { type: "string", example: "jwt_access_token" },
+          expiresIn: { type: "string", example: "1h" },
+          user: { $ref: "#/components/schemas/User" },
+        },
+      },
+      AuthForgotPasswordOtpRequest: {
+        type: "object",
+        required: ["phoneNumber"],
+        properties: {
+          phoneNumber: { type: "string", example: "0912345678" },
+        },
+      },
+      AuthResetPasswordRequest: {
+        type: "object",
+        required: ["phoneNumber", "otp", "newPassword"],
+        properties: {
+          phoneNumber: { type: "string", example: "0912345678" },
+          otp: { type: "string", example: "123456" },
+          newPassword: { type: "string", format: "password", example: "NewStrongPass@123" },
+        },
+      },
+      Gateway: {
+        type: "object",
+        properties: {
+          gatewayId: { type: "string", example: "gw_001" },
+          displayName: { type: "string", nullable: true, example: "Gateway phong khach" },
+          status: { type: "string", enum: ["ONLINE", "OFFLINE", "UNKNOWN"], example: "ONLINE" },
+          ipAddress: { type: "string", nullable: true, example: "192.168.1.20" },
+          lastHeartbeat: { type: "string", nullable: true, format: "date-time" },
+          ownerUserId: { type: "string", nullable: true, format: "uuid" },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+        },
+      },
+      GatewayCreateRequest: {
+        type: "object",
+        required: ["gatewayId"],
+        properties: {
+          gatewayId: { type: "string", example: "gw_001" },
+          displayName: { type: "string", example: "Gateway phong khach" },
+          ipAddress: { type: "string", example: "192.168.1.20" },
+          status: { type: "string", enum: ["ONLINE", "OFFLINE", "UNKNOWN"], example: "UNKNOWN" },
+          lastHeartbeat: { type: "string", format: "date-time" },
+          ownerUserId: { type: "string", format: "uuid", description: "Admin có thể truyền ownerUserId; caregiver mặc định là chính user hiện tại" },
+        },
+      },
+      GatewayUpdateRequest: {
+        type: "object",
+        properties: {
+          displayName: { type: "string", example: "Gateway phong ngu" },
+          ipAddress: { type: "string", example: "192.168.1.21" },
+          status: { type: "string", enum: ["ONLINE", "OFFLINE", "UNKNOWN"], example: "ONLINE" },
+          ownerUserId: { type: "string", format: "uuid", description: "Chỉ admin nên cập nhật ownerUserId" },
+        },
+      },
+      GatewayHeartbeatRequest: {
+        type: "object",
+        properties: {
+          status: { type: "string", enum: ["ONLINE", "OFFLINE", "UNKNOWN"], example: "ONLINE" },
+          ipAddress: { type: "string", example: "192.168.1.20" },
+        },
+      },
+      Device: {
+        type: "object",
+        properties: {
+          deviceId: { type: "string", example: "dev_imu_01" },
+          deviceType: { type: "string", enum: ["IMU", "CAMERA", "GATEWAY"], example: "IMU" },
+          gatewayId: { type: "string", example: "gw_001" },
+          displayName: { type: "string", nullable: true, example: "IMU phong khach" },
+          location: { type: "string", nullable: true, example: "Phòng khách" },
+          status: { type: "string", enum: ["REGISTERED", "ONLINE", "OFFLINE", "DISABLED", "UNKNOWN"], example: "ONLINE" },
+          batteryLevel: { type: "integer", nullable: true, minimum: 0, maximum: 100, example: 78 },
+          lastHeartbeat: { type: "string", nullable: true, format: "date-time" },
+          disabledAt: { type: "string", nullable: true, format: "date-time" },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+        },
+      },
+      DeviceCreateRequest: {
+        type: "object",
+        required: ["deviceId", "deviceType", "gatewayId"],
+        properties: {
+          deviceId: { type: "string", example: "dev_imu_01" },
+          deviceType: { type: "string", enum: ["IMU", "CAMERA", "GATEWAY"], example: "IMU" },
+          gatewayId: { type: "string", example: "gw_001" },
+          displayName: { type: "string", example: "IMU phong khach" },
+          location: { type: "string", example: "Phòng khách" },
+          status: { type: "string", enum: ["REGISTERED", "ONLINE", "OFFLINE", "DISABLED", "UNKNOWN"], example: "REGISTERED" },
+          batteryLevel: { type: "integer", minimum: 0, maximum: 100, example: 78 },
+          lastHeartbeat: { type: "string", format: "date-time" },
+        },
+      },
+      DeviceUpdateRequest: {
+        type: "object",
+        properties: {
+          deviceType: { type: "string", enum: ["IMU", "CAMERA", "GATEWAY"], example: "CAMERA" },
+          gatewayId: { type: "string", example: "gw_001" },
+          displayName: { type: "string", example: "Camera phong ngu" },
+          location: { type: "string", example: "Phòng ngủ" },
+          status: { type: "string", enum: ["REGISTERED", "ONLINE", "OFFLINE", "DISABLED", "UNKNOWN"], example: "ONLINE" },
+          batteryLevel: { type: "integer", minimum: 0, maximum: 100, example: 80 },
+          lastHeartbeat: { type: "string", format: "date-time" },
+        },
+      },
+      DeviceHeartbeatRequest: {
+        type: "object",
+        properties: {
+          status: { type: "string", enum: ["REGISTERED", "ONLINE", "OFFLINE", "DISABLED", "UNKNOWN"], example: "ONLINE" },
+          batteryLevel: { type: "integer", minimum: 0, maximum: 100, example: 78 },
         },
       },
       Permission: {
@@ -393,6 +552,10 @@ const swaggerDefinition = {
         description: "Không tìm thấy tài nguyên",
         content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
       },
+      Conflict: {
+        description: "Dữ liệu bị trùng hoặc xung đột nghiệp vụ",
+        content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
+      },
       InternalServerError: {
         description: "Lỗi nội bộ server",
         content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
@@ -400,6 +563,346 @@ const swaggerDefinition = {
     },
   },
   paths: {
+    "/auth/register/otp": {
+      post: {
+        tags: ["Auth"],
+        summary: "Gửi OTP đăng ký qua email",
+        description: "Kiểm tra số điện thoại/email chưa tồn tại, sinh OTP và gửi đến email của người dùng.",
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/AuthRegisterOtpRequest" } } },
+        },
+        responses: {
+          200: {
+            description: "OTP đăng ký đã được gửi",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessResponse" } } },
+          },
+          400: { $ref: "#/components/responses/BadRequest" },
+          409: { $ref: "#/components/responses/Conflict" },
+          429: { description: "Gửi OTP quá thường xuyên" },
+          500: { $ref: "#/components/responses/InternalServerError" },
+        },
+      },
+    },
+    "/auth/register": {
+      post: {
+        tags: ["Auth"],
+        summary: "Đăng ký tài khoản caregiver",
+        description: "Xác thực OTP, hash mật khẩu bằng bcrypt và tạo tài khoản người chăm sóc.",
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/AuthRegisterRequest" } } },
+        },
+        responses: {
+          201: {
+            description: "Đăng ký thành công",
+            content: {
+              "application/json": {
+                schema: {
+                  allOf: [
+                    { $ref: "#/components/schemas/SuccessResponse" },
+                    { type: "object", properties: { data: { $ref: "#/components/schemas/User" } } },
+                  ],
+                },
+              },
+            },
+          },
+          400: { $ref: "#/components/responses/BadRequest" },
+          409: { $ref: "#/components/responses/Conflict" },
+          429: { description: "Gửi request đăng ký quá thường xuyên" },
+          500: { $ref: "#/components/responses/InternalServerError" },
+        },
+      },
+    },
+    "/auth/login": {
+      post: {
+        tags: ["Auth"],
+        summary: "Đăng nhập và lấy JWT",
+        description: "Xác thực số điện thoại/mật khẩu, trả về accessToken để gọi các API yêu cầu Authorization.",
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/AuthLoginRequest" } } },
+        },
+        responses: {
+          200: {
+            description: "Đăng nhập thành công",
+            content: {
+              "application/json": {
+                schema: {
+                  allOf: [
+                    { $ref: "#/components/schemas/SuccessResponse" },
+                    { type: "object", properties: { data: { $ref: "#/components/schemas/AuthLoginResponseData" } } },
+                  ],
+                },
+              },
+            },
+          },
+          400: { $ref: "#/components/responses/BadRequest" },
+          401: { $ref: "#/components/responses/Unauthorized" },
+          429: { description: "Đăng nhập quá thường xuyên" },
+          500: { $ref: "#/components/responses/InternalServerError" },
+        },
+      },
+    },
+    "/auth/me": {
+      get: {
+        tags: ["Auth"],
+        summary: "Lấy thông tin người dùng hiện tại",
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: {
+            description: "Thông tin user hiện tại",
+            content: {
+              "application/json": {
+                schema: {
+                  allOf: [
+                    { $ref: "#/components/schemas/SuccessResponse" },
+                    { type: "object", properties: { data: { $ref: "#/components/schemas/User" } } },
+                  ],
+                },
+              },
+            },
+          },
+          401: { $ref: "#/components/responses/Unauthorized" },
+          500: { $ref: "#/components/responses/InternalServerError" },
+        },
+      },
+    },
+    "/auth/forgot-password/verify": {
+      post: {
+        tags: ["Auth"],
+        summary: "Gửi OTP đặt lại mật khẩu",
+        description: "Kiểm tra số điện thoại tồn tại và gửi OTP reset password đến email đã đăng ký.",
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/AuthForgotPasswordOtpRequest" } } },
+        },
+        responses: {
+          200: { description: "OTP đặt lại mật khẩu đã được gửi", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessResponse" } } } },
+          400: { $ref: "#/components/responses/BadRequest" },
+          429: { description: "Gửi OTP quá thường xuyên" },
+          500: { $ref: "#/components/responses/InternalServerError" },
+        },
+      },
+    },
+    "/auth/forgot-password/otp": {
+      post: { $ref: "#/paths/~1auth~1forgot-password~1verify/post" },
+    },
+    "/auth/forgot-password/reset": {
+      post: {
+        tags: ["Auth"],
+        summary: "Đặt lại mật khẩu bằng OTP",
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/AuthResetPasswordRequest" } } },
+        },
+        responses: {
+          200: { description: "Đổi mật khẩu thành công", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessResponse" } } } },
+          400: { $ref: "#/components/responses/BadRequest" },
+          429: { description: "Reset password quá thường xuyên" },
+          500: { $ref: "#/components/responses/InternalServerError" },
+        },
+      },
+    },
+    "/gateways": {
+      get: {
+        tags: ["Gateways"],
+        summary: "Lấy danh sách gateway",
+        description: "Admin xem toàn bộ gateway; caregiver chỉ xem gateway sở hữu hoặc gateway có thiết bị được cấp quyền.",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "status", in: "query", schema: { type: "string", enum: ["ONLINE", "OFFLINE", "UNKNOWN"] } },
+          { $ref: "#/components/parameters/Page" },
+          { $ref: "#/components/parameters/PageSize" },
+        ],
+        responses: {
+          200: {
+            description: "Danh sách gateway",
+            content: { "application/json": { schema: { allOf: [{ $ref: "#/components/schemas/SuccessResponse" }, { type: "object", properties: { data: { type: "array", items: { $ref: "#/components/schemas/Gateway" } } } }] } } },
+          },
+          ...commonErrorResponses,
+        },
+      },
+      post: {
+        tags: ["Gateways"],
+        summary: "Tạo gateway mới",
+        description: "Yêu cầu role admin hoặc caregiver. caregiver tạo gateway mặc định thuộc chính mình.",
+        security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/GatewayCreateRequest" } } } },
+        responses: {
+          201: { description: "Tạo gateway thành công", content: { "application/json": { schema: { allOf: [{ $ref: "#/components/schemas/SuccessResponse" }, { type: "object", properties: { data: { $ref: "#/components/schemas/Gateway" } } }] } } } },
+          ...commonErrorResponses,
+        },
+      },
+    },
+    "/gateways/{gatewayId}": {
+      get: {
+        tags: ["Gateways"],
+        summary: "Lấy chi tiết gateway",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "gatewayId", in: "path", required: true, schema: { type: "string" }, example: "gw_001" }],
+        responses: {
+          200: { description: "Thông tin gateway", content: { "application/json": { schema: { allOf: [{ $ref: "#/components/schemas/SuccessResponse" }, { type: "object", properties: { data: { $ref: "#/components/schemas/Gateway" } } }] } } } },
+          ...commonErrorResponses,
+        },
+      },
+      put: {
+        tags: ["Gateways"],
+        summary: "Cập nhật gateway",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "gatewayId", in: "path", required: true, schema: { type: "string" }, example: "gw_001" }],
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/GatewayUpdateRequest" } } } },
+        responses: {
+          200: { description: "Cập nhật gateway thành công", content: { "application/json": { schema: { allOf: [{ $ref: "#/components/schemas/SuccessResponse" }, { type: "object", properties: { data: { $ref: "#/components/schemas/Gateway" } } }] } } } },
+          ...commonErrorResponses,
+        },
+      },
+      delete: {
+        tags: ["Gateways"],
+        summary: "Xóa gateway",
+        description: "Không cho xóa gateway đang có thiết bị.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "gatewayId", in: "path", required: true, schema: { type: "string" }, example: "gw_001" }],
+        responses: {
+          200: { description: "Xóa gateway thành công", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessResponse" } } } },
+          ...commonErrorResponses,
+        },
+      },
+    },
+    "/gateways/{gatewayId}/heartbeat": {
+      patch: {
+        tags: ["Gateways"],
+        summary: "Cập nhật heartbeat gateway",
+        description: "Dùng để gateway báo online/offline và cập nhật IP hiện tại.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "gatewayId", in: "path", required: true, schema: { type: "string" }, example: "gw_001" }],
+        requestBody: { required: false, content: { "application/json": { schema: { $ref: "#/components/schemas/GatewayHeartbeatRequest" } } } },
+        responses: {
+          200: { description: "Heartbeat gateway đã cập nhật", content: { "application/json": { schema: { allOf: [{ $ref: "#/components/schemas/SuccessResponse" }, { type: "object", properties: { data: { $ref: "#/components/schemas/Gateway" } } }] } } } },
+          ...commonErrorResponses,
+        },
+      },
+    },
+    "/devices/status": {
+      get: {
+        tags: ["Devices"],
+        summary: "Lấy trạng thái tất cả thiết bị có quyền",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "gatewayId", in: "query", schema: { type: "string" }, example: "gw_001" },
+          { name: "type", in: "query", schema: { type: "string", enum: ["IMU", "CAMERA", "GATEWAY"] } },
+          { name: "status", in: "query", schema: { type: "string", enum: ["REGISTERED", "ONLINE", "OFFLINE", "DISABLED", "UNKNOWN"] } },
+          { $ref: "#/components/parameters/Page" },
+          { $ref: "#/components/parameters/PageSize" },
+        ],
+        responses: {
+          200: { description: "Danh sách trạng thái thiết bị", content: { "application/json": { schema: { allOf: [{ $ref: "#/components/schemas/SuccessResponse" }, { type: "object", properties: { data: { type: "array", items: { $ref: "#/components/schemas/Device" } } } }] } } } },
+          ...commonErrorResponses,
+        },
+      },
+    },
+    "/devices": {
+      get: {
+        tags: ["Devices"],
+        summary: "Lấy danh sách thiết bị",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "gatewayId", in: "query", schema: { type: "string" }, example: "gw_001" },
+          { name: "type", in: "query", schema: { type: "string", enum: ["IMU", "CAMERA", "GATEWAY"] } },
+          { name: "deviceType", in: "query", schema: { type: "string", enum: ["IMU", "CAMERA", "GATEWAY"] } },
+          { name: "status", in: "query", schema: { type: "string", enum: ["REGISTERED", "ONLINE", "OFFLINE", "DISABLED", "UNKNOWN"] } },
+          { $ref: "#/components/parameters/Page" },
+          { $ref: "#/components/parameters/PageSize" },
+        ],
+        responses: {
+          200: { description: "Danh sách thiết bị", content: { "application/json": { schema: { allOf: [{ $ref: "#/components/schemas/SuccessResponse" }, { type: "object", properties: { data: { type: "array", items: { $ref: "#/components/schemas/Device" } } } }] } } } },
+          ...commonErrorResponses,
+        },
+      },
+      post: {
+        tags: ["Devices"],
+        summary: "Thêm thiết bị mới",
+        description: "Yêu cầu role admin hoặc caregiver có quyền quản lý gateway chứa thiết bị.",
+        security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/DeviceCreateRequest" } } } },
+        responses: {
+          201: { description: "Thêm thiết bị thành công", content: { "application/json": { schema: { allOf: [{ $ref: "#/components/schemas/SuccessResponse" }, { type: "object", properties: { data: { $ref: "#/components/schemas/Device" } } }] } } } },
+          ...commonErrorResponses,
+        },
+      },
+    },
+    "/devices/{deviceId}": {
+      get: {
+        tags: ["Devices"],
+        summary: "Lấy chi tiết thiết bị",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "deviceId", in: "path", required: true, schema: { type: "string" }, example: "dev_imu_01" }],
+        responses: {
+          200: { description: "Thông tin thiết bị", content: { "application/json": { schema: { allOf: [{ $ref: "#/components/schemas/SuccessResponse" }, { type: "object", properties: { data: { $ref: "#/components/schemas/Device" } } }] } } } },
+          ...commonErrorResponses,
+        },
+      },
+      put: {
+        tags: ["Devices"],
+        summary: "Cập nhật thiết bị",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "deviceId", in: "path", required: true, schema: { type: "string" }, example: "dev_imu_01" }],
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/DeviceUpdateRequest" } } } },
+        responses: {
+          200: { description: "Cập nhật thiết bị thành công", content: { "application/json": { schema: { allOf: [{ $ref: "#/components/schemas/SuccessResponse" }, { type: "object", properties: { data: { $ref: "#/components/schemas/Device" } } }] } } } },
+          ...commonErrorResponses,
+        },
+      },
+      delete: {
+        tags: ["Devices"],
+        summary: "Xóa thiết bị",
+        description: "Không cho xóa thiết bị đang ONLINE.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "deviceId", in: "path", required: true, schema: { type: "string" }, example: "dev_imu_01" }],
+        responses: {
+          200: { description: "Xóa thiết bị thành công", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessResponse" } } } },
+          ...commonErrorResponses,
+        },
+      },
+    },
+    "/devices/{deviceId}/status": {
+      get: {
+        tags: ["Devices"],
+        summary: "Lấy trạng thái một thiết bị",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "deviceId", in: "path", required: true, schema: { type: "string" }, example: "dev_imu_01" }],
+        responses: {
+          200: { description: "Trạng thái thiết bị", content: { "application/json": { schema: { allOf: [{ $ref: "#/components/schemas/SuccessResponse" }, { type: "object", properties: { data: { $ref: "#/components/schemas/Device" } } }] } } } },
+          ...commonErrorResponses,
+        },
+      },
+    },
+    "/devices/{deviceId}/heartbeat": {
+      patch: {
+        tags: ["Devices"],
+        summary: "Cập nhật heartbeat thiết bị",
+        description: "Dùng khi gateway/edge báo thiết bị còn hoạt động và cập nhật pin.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "deviceId", in: "path", required: true, schema: { type: "string" }, example: "dev_imu_01" }],
+        requestBody: { required: false, content: { "application/json": { schema: { $ref: "#/components/schemas/DeviceHeartbeatRequest" } } } },
+        responses: {
+          200: { description: "Heartbeat thiết bị đã cập nhật", content: { "application/json": { schema: { allOf: [{ $ref: "#/components/schemas/SuccessResponse" }, { type: "object", properties: { data: { $ref: "#/components/schemas/Device" } } }] } } } },
+          ...commonErrorResponses,
+        },
+      },
+    },
+    "/devices/{deviceId}/disable": {
+      patch: {
+        tags: ["Devices"],
+        summary: "Vô hiệu hóa thiết bị",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "deviceId", in: "path", required: true, schema: { type: "string" }, example: "dev_imu_01" }],
+        responses: {
+          200: { description: "Thiết bị đã được vô hiệu hóa", content: { "application/json": { schema: { allOf: [{ $ref: "#/components/schemas/SuccessResponse" }, { type: "object", properties: { data: { $ref: "#/components/schemas/Device" } } }] } } } },
+          ...commonErrorResponses,
+        },
+      },
+    },
     "/permissions": {
       get: {
         tags: ["Permissions"],
