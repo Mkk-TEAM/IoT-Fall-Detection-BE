@@ -98,8 +98,9 @@ model Gateway {
   updatedAt     DateTime      @updatedAt @map("updated_at")
 
   owner  User?   @relation("GatewayOwner", fields: [ownerUserId], references: [userId], onDelete: SetNull)
-  devices Device[]
-  events  Event[]
+  devices    Device[]
+  events     Event[]
+  statusLogs DeviceStatusLog[]
 
   @@index([ownerUserId])
   @@index([status])
@@ -123,6 +124,7 @@ model Device {
   healthLogs  HealthLog[]
   events      Event[]
   permissions Permission[]
+  statusLogs  DeviceStatusLog[]
 
   @@index([gatewayId])
   @@index([deviceType, status])
@@ -192,6 +194,33 @@ model HealthLog {
 
   @@index([deviceId, recordedAt])
   @@map("health_logs")
+}
+
+model DeviceStatusLog {
+  statusLogId   String       @id @default(uuid()) @map("status_log_id")
+  deviceId      String?      @map("device_id")
+  gatewayId     String?      @map("gateway_id")
+  source        String?
+  status        DeviceStatus @default(UNKNOWN)
+  statusMessage String?      @map("status_message")
+  batteryLevel  Int?         @map("battery_level")
+  ipAddress     String?      @map("ip_address")
+  signalStrength Int?        @map("signal_strength")
+  cameraOpened  Boolean?     @map("camera_opened")
+  streamStatus  String?      @map("stream_status")
+  frameRate     Int?         @map("frame_rate")
+  resolution    String?
+  recordedAt    DateTime     @default(now()) @map("recorded_at")
+  rawPayload    Json?        @map("raw_payload")
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  device  Device?  @relation(fields: [deviceId], references: [deviceId], onDelete: SetNull)
+  gateway Gateway? @relation(fields: [gatewayId], references: [gatewayId], onDelete: SetNull)
+
+  @@index([deviceId, recordedAt])
+  @@index([gatewayId, recordedAt])
+  @@index([status, recordedAt])
+  @@map("device_status_logs")
 }
 
 model ThresholdConfig {

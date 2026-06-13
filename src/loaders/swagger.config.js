@@ -28,6 +28,7 @@ const swaggerDefinition = {
     { name: "Permissions", description: "Phân quyền truy cập thiết bị cho người dùng" },
     { name: "Thresholds", description: "Cấu hình ngưỡng cảnh báo té ngã, bất động và mất kết nối" },
     { name: "HealthLogs", description: "Dữ liệu telemetry/health log từ IMU" },
+    { name: "DeviceStatusLogs", description: "Log tình trạng online/offline, camera, stream và heartbeat của thiết bị/gateway" },
     { name: "Events", description: "Sự kiện/cảnh báo té ngã và trạng thái bất thường" },
     { name: "Notifications", description: "Gửi cảnh báo và xem lịch sử gửi cảnh báo" },
     { name: "Streams", description: "Phiên xem camera thời gian thực" },
@@ -38,6 +39,12 @@ const swaggerDefinition = {
         type: "http",
         scheme: "bearer",
         bearerFormat: "JWT",
+      },
+      edgeSecret: {
+        type: "apiKey",
+        in: "header",
+        name: "X-Edge-Secret",
+        description: "Shared secret dùng cho gateway/edge service khi gửi dữ liệu nội bộ về backend",
       },
     },
     parameters: {
@@ -193,6 +200,52 @@ const swaggerDefinition = {
           },
           tiltAngle: { type: "number", example: 63.5 },
           batteryLevel: { type: "integer", example: 78 },
+        },
+      },
+      DeviceStatusLog: {
+        type: "object",
+        properties: {
+          statusLogId: { type: "string", format: "uuid" },
+          deviceId: { type: "string", nullable: true, example: "dev_cam_01" },
+          gatewayId: { type: "string", nullable: true, example: "gw_001" },
+          source: { type: "string", nullable: true, example: "EDGE_STREAM" },
+          status: { type: "string", enum: ["REGISTERED", "ONLINE", "OFFLINE", "DISABLED", "UNKNOWN"], example: "ONLINE" },
+          statusMessage: { type: "string", nullable: true, example: "Camera stream is healthy" },
+          batteryLevel: { type: "integer", nullable: true, example: 78 },
+          ipAddress: { type: "string", nullable: true, example: "192.168.2.14" },
+          signalStrength: { type: "integer", nullable: true, example: -61 },
+          cameraOpened: { type: "boolean", nullable: true, example: true },
+          streamStatus: { type: "string", nullable: true, example: "ACTIVE" },
+          frameRate: { type: "integer", nullable: true, example: 15 },
+          resolution: { type: "string", nullable: true, example: "640x480" },
+          recordedAt: { type: "string", format: "date-time" },
+          rawPayload: { type: "object", nullable: true },
+          createdAt: { type: "string", format: "date-time" },
+        },
+      },
+      DeviceStatusLogCreateRequest: {
+        type: "object",
+        required: ["status"],
+        description: "Cần có ít nhất deviceId hoặc gatewayId.",
+        properties: {
+          deviceId: { type: "string", example: "dev_cam_01" },
+          gatewayId: { type: "string", example: "gw_001" },
+          source: { type: "string", example: "EDGE_STREAM" },
+          status: { type: "string", enum: ["ONLINE", "OFFLINE", "UNKNOWN", "DISABLED"], example: "ONLINE" },
+          statusMessage: { type: "string", example: "Camera stream is healthy" },
+          batteryLevel: { type: "integer", minimum: 0, maximum: 100, example: 78 },
+          ipAddress: { type: "string", example: "192.168.2.14" },
+          signalStrength: { type: "integer", example: -61 },
+          cameraOpened: { type: "boolean", example: true },
+          streamStatus: { type: "string", example: "ACTIVE" },
+          frameRate: { type: "integer", example: 15 },
+          fps: { type: "integer", example: 15 },
+          resolution: { type: "string", example: "640x480" },
+          width: { type: "integer", example: 640 },
+          height: { type: "integer", example: 480 },
+          timestamp: { type: "string", format: "date-time", example: "2026-06-13T03:00:00.000Z" },
+          recordedAt: { type: "string", format: "date-time", example: "2026-06-13T03:00:00.000Z" },
+          rawPayload: { type: "object" },
         },
       },
       Event: {
@@ -520,6 +573,99 @@ const swaggerDefinition = {
             content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessResponse" } } },
           },
           ...commonErrorResponses,
+        },
+      },
+    },
+    "/device-status-logs": {
+      get: {
+        tags: ["DeviceStatusLogs"],
+        summary: "Truy vấn log tình trạng thiết bị/gateway",
+        description: "Người dùng chỉ xem được log của thiết bị/gateway mình sở hữu hoặc được cấp quyền; admin xem toàn bộ.",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "deviceId", in: "query", schema: { type: "string" }, description: "Lọc theo thiết bị" },
+          { name: "gatewayId", in: "query", schema: { type: "string" }, description: "Lọc theo gateway" },
+          { name: "status", in: "query", schema: { type: "string", enum: ["REGISTERED", "ONLINE", "OFFLINE", "DISABLED", "UNKNOWN"] } },
+          { name: "source", in: "query", schema: { type: "string" }, example: "EDGE_STREAM" },
+          { $ref: "#/components/parameters/From" },
+          { $ref: "#/components/parameters/To" },
+          { $ref: "#/components/parameters/Page" },
+          { $ref: "#/components/parameters/PageSize" },
+        ],
+        responses: {
+          200: {
+            description: "Danh sách log tình trạng",
+            content: {
+              "application/json": {
+                schema: {
+                  allOf: [
+                    { $ref: "#/components/schemas/SuccessResponse" },
+                    { type: "object", properties: { data: { type: "array", items: { $ref: "#/components/schemas/DeviceStatusLog" } } } },
+                  ],
+                },
+              },
+            },
+          },
+          ...commonErrorResponses,
+        },
+      },
+      post: {
+        tags: ["DeviceStatusLogs"],
+        summary: "Tạo log tình trạng thiết bị thủ công",
+        description: "Endpoint có JWT cho admin/caregiver dùng trong demo hoặc debug. Gateway thật nên dùng /internal/device-status-logs với X-Edge-Secret.",
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/DeviceStatusLogCreateRequest" } } },
+        },
+        responses: {
+          201: {
+            description: "Log tình trạng đã được lưu",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessResponse" } } },
+          },
+          ...commonErrorResponses,
+        },
+      },
+    },
+    "/device-status-logs/latest": {
+      get: {
+        tags: ["DeviceStatusLogs"],
+        summary: "Lấy tình trạng mới nhất của thiết bị/gateway",
+        description: "Nếu truyền deviceId hoặc gatewayId, API trả về log mới nhất tương ứng. Nếu không truyền, API trả về log mới nhất theo từng thiết bị/gateway trong phạm vi quyền truy cập.",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "deviceId", in: "query", schema: { type: "string" } },
+          { name: "gatewayId", in: "query", schema: { type: "string" } },
+          { name: "source", in: "query", schema: { type: "string" } },
+          { name: "status", in: "query", schema: { type: "string", enum: ["REGISTERED", "ONLINE", "OFFLINE", "DISABLED", "UNKNOWN"] } },
+        ],
+        responses: {
+          200: {
+            description: "Tình trạng mới nhất",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessResponse" } } },
+          },
+          ...commonErrorResponses,
+        },
+      },
+    },
+    "/internal/device-status-logs": {
+      post: {
+        tags: ["DeviceStatusLogs"],
+        summary: "Gateway/edge ghi log tình trạng thiết bị",
+        description: "Dùng cho Raspberry Pi/gateway/edge service gửi heartbeat, cameraOpened, streamStatus, batteryLevel hoặc lỗi thiết bị về backend. Endpoint này không dùng JWT mà dùng header X-Edge-Secret.",
+        security: [{ edgeSecret: [] }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/DeviceStatusLogCreateRequest" } } },
+        },
+        responses: {
+          201: {
+            description: "Gateway/edge đã ghi log tình trạng",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessResponse" } } },
+          },
+          401: { $ref: "#/components/responses/Unauthorized" },
+          404: { $ref: "#/components/responses/NotFound" },
+          500: { $ref: "#/components/responses/InternalServerError" },
         },
       },
     },
