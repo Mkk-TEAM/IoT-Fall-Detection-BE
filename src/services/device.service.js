@@ -12,6 +12,7 @@ const deviceSelect = {
   status: true,
   batteryLevel: true,
   lastHeartbeat: true,
+  pingMs: true,
   disabledAt: true,
   createdAt: true,
   updatedAt: true,
@@ -126,12 +127,17 @@ class DeviceService {
     const device = await prisma.device.findUnique({ where: { deviceId } });
     if (!device) throw new NotFoundError("Thiết bị không tồn tại.", "DEVICE_NOT_FOUND");
 
+    const pingMs = data.metrics?.jitterMeanMs != null
+      ? Number(data.metrics.jitterMeanMs)
+      : undefined;
+
     return prisma.device.update({
       where: { deviceId },
       data: {
         status: data.status || "ONLINE",
         batteryLevel: data.batteryLevel,
         lastHeartbeat: new Date(),
+        ...(pingMs !== undefined && { pingMs }),
       },
       select: deviceSelect,
     });

@@ -116,6 +116,7 @@ model Device {
   status        DeviceStatus @default(REGISTERED)
   batteryLevel  Int?         @map("battery_level")
   lastHeartbeat DateTime?    @map("last_heartbeat")
+  pingMs        Float?       @map("ping_ms")
   disabledAt    DateTime?    @map("disabled_at")
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
