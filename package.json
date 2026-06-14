@@ -12,7 +12,8 @@
     "db:deploy": "npx dotenv -e ./.env -- npx prisma migrate deploy",
     "db:status": "npx dotenv -e ./.env -- npx prisma migrate status",
     "db:studio": "npx dotenv -e ./.env -- npx prisma studio",
-    "seed:admin": "node scripts/createAdmin.js"
+    "seed:admin": "node scripts/createAdmin.js",
+    "postinstall": "prisma generate"
   },
   "keywords": [
     "iot",
