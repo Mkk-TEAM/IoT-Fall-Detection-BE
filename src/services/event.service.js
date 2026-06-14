@@ -3,6 +3,7 @@ import { EVENT_PRIORITIES, EVENT_STATUSES, EVENT_TYPES } from "../common/enums.j
 import { BadRequestError, ForbiddenError, NotFoundError } from "../helpers/handleError.js";
 import { assertEnum, assertRequired, parseDate, parsePagination } from "../utils/validators.js";
 import { canAccessDevice } from "../middleware/auth.middleware.js";
+import { sendFallSms } from "../config/smsService.js";
 
 const eventSelect = {
   eventId: true,
@@ -47,7 +48,7 @@ class EventService {
       if (!gateway) throw new NotFoundError("Gateway không tồn tại.", "GATEWAY_NOT_FOUND");
     }
 
-    return prisma.event.create({
+    const event = await prisma.event.create({
       data: {
         eventType: data.eventType,
         timestamp: data.timestamp ? new Date(data.timestamp) : undefined,
@@ -61,8 +62,43 @@ class EventService {
         deviceId: data.deviceId,
         gatewayId: data.gatewayId,
       },
-      select: eventSelect,
+      select: {
+        ...eventSelect,
+        device: {
+          select: {
+            deviceId: true, deviceType: true, displayName: true, gatewayId: true,
+            gateway: { select: { ownerUserId: true } },
+            permissions: { select: { user: { select: { phoneNumber: true } } } },
+          },
+        },
+      },
     });
+
+    // Fire-and-forget SMS for FALL events — collect all relevant phone numbers.
+    if (data.eventType === "FALL") {
+      const phones = new Set();
+
+      // Gateway owner
+      const ownerUserId = event.device?.gateway?.ownerUserId;
+      if (ownerUserId) {
+        const owner = await prisma.user.findUnique({
+          where: { userId: ownerUserId },
+          select: { phoneNumber: true },
+        });
+        if (owner?.phoneNumber) phones.add(owner.phoneNumber);
+      }
+
+      // Caregivers with canViewHistory permission
+      for (const perm of event.device?.permissions ?? []) {
+        if (perm.user?.phoneNumber) phones.add(perm.user.phoneNumber);
+      }
+
+      for (const phone of phones) {
+        sendFallSms({ to: phone, event });
+      }
+    }
+
+    return event;
   }
 
   async list(query, user) {

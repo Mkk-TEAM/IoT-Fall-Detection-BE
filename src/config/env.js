@@ -40,4 +40,7 @@ export const env = Object.freeze({
 
   streamSessionTtlSeconds: parseNumber(process.env.STREAM_SESSION_TTL_SECONDS, 300),
   stunUrl: process.env.STUN_URL || "stun:stun.l.google.com:19302",
+
+  smsEnabled: parseBoolean(process.env.SMS_ENABLED, true),
+  smsServiceUrl: process.env.SMS_SERVICE_URL || "http://localhost:8090",
 });
